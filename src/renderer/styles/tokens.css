@@ -1,0 +1,31 @@
+:root {
+  --app-bg: #f4f6f9;
+  --sidebar-bg: #ffffff;
+  --text-primary: #1f2329;
+  --text-secondary: #6b7280;
+  --border-color: #e5e7eb;
+  --card-radius: 12px;
+  --danger: #cf1322;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+.app-boot {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--app-bg);
+}

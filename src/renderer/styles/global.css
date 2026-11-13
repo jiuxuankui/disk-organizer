@@ -1,0 +1,31 @@
+body {
+  color: var(--text-primary);
+  background: var(--app-bg);
+  font-family: 'Microsoft YaHei UI', 'Microsoft YaHei', -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+input,
+textarea,
+.selectable-text {
+  user-select: text;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c9ced6;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #aeb5c0;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}

@@ -1,0 +1,93 @@
+{
+  "name": "disk-organizer",
+  "version": "0.1.0",
+  "description": "本地硬盘整理工具",
+  "main": "./out/main/index.js",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.e2e.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "build": "npm run typecheck && electron-vite build",
+    "build:win": "npm run build && electron-builder --win nsis",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "npm run build && playwright test",
+    "seed:fixtures": "node scripts/generate-test-files.mjs",
+    "seed:perf": "node scripts/perf-seed.mjs",
+    "perf:check": "npm run build && node scripts/perf-check.mjs"
+  },
+  "build": {
+    "appId": "com.local.diskorganizer",
+    "productName": "硬盘整理",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "electronDist": "node_modules/electron/dist",
+    "asarUnpack": [
+      "node_modules/koffi/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "shortcutName": "硬盘整理",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "DiskOrganizer-Setup-${version}.exe"
+    }
+  },
+  "dependencies": {
+    "@ant-design/icons": "5.6.1",
+    "antd": "5.29.3",
+    "dayjs": "1.11.23",
+    "koffi": "3.3.8",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "^4.1.12",
+    "zustand": "5.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@playwright/test": "1.65.0",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "electron": "45.3.1",
+    "electron-builder": "26.18.0",
+    "electron-vite": "6.0.0",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "prettier": "^3.6.2",
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.46.3",
+    "vite": "8.3.8",
+    "vitest": "5.1.0"
+  }
+}

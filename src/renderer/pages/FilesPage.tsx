@@ -1,0 +1,311 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Card, Empty, Typography } from 'antd';
+import type { FileRecord, PagedResult } from '@shared/types';
+import { COPY } from '@shared/copy';
+import { PAGE_SIZE } from '@shared/constants';
+import { formatBytes, formatCount, formatDateTime } from '@shared/format';
+import PageHeader from '../components/PageHeader';
+import FilesToolbar from '../components/FilesToolbar';
+import FileTable from '../components/FileTable';
+import BulkActionBar from '../components/BulkActionBar';
+import {
+  buildFileQuery,
+  DEFAULT_FILE_SORT,
+  DEFAULT_FILES_FILTERS,
+  filtersFromPrefill,
+  folderFromDirectory,
+  hasActiveFilters,
+  withoutFilter,
+  type FileSort,
+  type FilesFilters,
+  type FilterTag,
+} from '../lib/filesFilter';
+import {
+  appendLoadedKeys,
+  canSelectAllFiltered,
+  clearSelection,
+  selectedBytes,
+  selectedCount,
+  selectAllFiltered,
+  type FilesSelection,
+} from '../lib/filesSelection';
+import { describeError, isScanActive, useAppStore } from '../store/useAppStore';
+
+export default function FilesPage(): React.JSX.Element {
+  const overview = useAppStore((state) => state.overview);
+  const prefill = useAppStore((state) => state.filesPrefill);
+  const clearFilesPrefill = useAppStore((state) => state.clearFilesPrefill);
+  const openDetail = useAppStore((state) => state.openDetail);
+  const openInExplorer = useAppStore((state) => state.openInExplorer);
+  const openScanModal = useAppStore((state) => state.openScanModal);
+  const pushNotice = useAppStore((state) => state.pushNotice);
+  const requestDelete = useAppStore((state) => state.requestDelete);
+  const dataVersion = useAppStore((state) => state.dataVersion);
+  const scanState = useAppStore((state) => state.scanState);
+  const scanning = isScanActive(scanState);
+  const recycleUnavailable = useAppStore(
+    (state) => state.recycleStatus?.available === false,
+  );
+
+  const scanId = overview?.scan?.id ?? null;
+  const [filters, setFilters] = useState<FilesFilters>(() => filtersFromPrefill(prefill));
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<FileSort>(DEFAULT_FILE_SORT);
+  const [items, setItems] = useState<FileRecord[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalBytes, setTotalBytes] = useState(0);
+  const [loadedPage, setLoadedPage] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [selection, setSelection] = useState<FilesSelection>(clearSelection());
+  const requestRef = useRef(0);
+  const loadingRef = useRef(false);
+  const loadingMoreRef = useRef(false);
+
+  const baseQuery = useMemo(
+    () => buildFileQuery({ filters, sort, search, page: 1, pageSize: PAGE_SIZE }),
+    [filters, sort, search],
+  );
+
+  useEffect(() => {
+    clearFilesPrefill();
+  }, [clearFilesPrefill]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    if (scanId === null) {
+      requestRef.current += 1;
+      setItems([]);
+      setTotal(0);
+      setTotalBytes(0);
+      setLoadedPage(0);
+      setLoading(false);
+      setSelection(clearSelection());
+      return;
+    }
+    const sequence = ++requestRef.current;
+    const controller = { active: true };
+    loadingRef.current = true;
+    loadingMoreRef.current = false;
+    setLoading(true);
+    setLoadingMore(false);
+    setItems([]);
+    setTotal(0);
+    setTotalBytes(0);
+    setLoadedPage(0);
+    setSelection(clearSelection());
+    window.api
+      .queryFiles(baseQuery)
+      .then((result: PagedResult<FileRecord>) => {
+        if (!controller.active || sequence !== requestRef.current) return;
+        setItems(result.items);
+        setTotal(result.total);
+        setTotalBytes(result.totalBytes);
+        setLoadedPage(result.page);
+        setSelection(clearSelection());
+      })
+      .catch((error: unknown) => {
+        if (!controller.active || sequence !== requestRef.current) return;
+        pushNotice('error', `读取文件索引失败：${describeError(error)}`);
+      })
+      .finally(() => {
+        if (!controller.active || sequence !== requestRef.current) return;
+        loadingRef.current = false;
+        setLoading(false);
+      });
+    return () => {
+      controller.active = false;
+      requestRef.current += 1;
+    };
+  }, [baseQuery, scanId, dataVersion, pushNotice]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingRef.current || loadingMoreRef.current) return;
+    if (total === 0 || items.length >= total) return;
+    const sequence = requestRef.current;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const result = await window.api.queryFiles({
+        ...baseQuery,
+        page: loadedPage + 1,
+      });
+      if (sequence !== requestRef.current) return;
+      const existing = new Set(items.map((item) => item.id));
+      const additions = result.items.filter((item) => !existing.has(item.id));
+      setItems((prev) => [...prev, ...additions]);
+      setTotal(result.total);
+      setTotalBytes(result.totalBytes);
+      setLoadedPage(result.page);
+      setSelection((prev) =>
+        appendLoadedKeys(prev, additions.map((item) => item.id)),
+      );
+    } catch (error) {
+      if (sequence === requestRef.current) {
+        pushNotice('error', `加载更多文件失败：${describeError(error)}`);
+      }
+    } finally {
+      loadingMoreRef.current = false;
+      if (sequence === requestRef.current) setLoadingMore(false);
+    }
+  }, [baseQuery, total, items, loadedPage, pushNotice]);
+
+  const scannedDrives = useMemo(() => {
+    if (!overview) return [];
+    const letters = overview.scan?.drives ?? [];
+    const scanned = overview.drives.filter((drive) => letters.includes(drive.drive));
+    return scanned.length > 0 ? scanned : overview.drives;
+  }, [overview]);
+
+  const updateFilters = (patch: Partial<FilesFilters>): void => {
+    setFilters((prev) => ({ ...prev, ...patch }));
+    setSelection(clearSelection());
+  };
+
+  const handleRemoveTag = (key: FilterTag['key']): void => {
+    if (key === 'search') {
+      setSearchInput('');
+      setSearch('');
+      return;
+    }
+    setFilters((prev) => withoutFilter(prev, key));
+    setSelection(clearSelection());
+  };
+
+  const handleClear = (): void => {
+    setFilters(DEFAULT_FILES_FILTERS);
+    setSearchInput('');
+    setSearch('');
+    setSelection(clearSelection());
+  };
+
+  const handleSortChange = (next: FileSort): void => {
+    setSort(next);
+    setSelection(clearSelection());
+  };
+
+  const handleFilterFolder = (path: string): void => {
+    const folder = folderFromDirectory(path);
+    if (!folder) return;
+    setFilters((prev) => ({ ...prev, folder }));
+    setSelection(clearSelection());
+  };
+
+  const filtered = hasActiveFilters(filters, search);
+  const selectedTotal = selectedCount(selection, total);
+  const selectedSize = selectedBytes(selection, items, totalBytes);
+  const showSelectAll = canSelectAllFiltered(selection, total);
+
+  const handleDelete = async (): Promise<void> => {
+    if (scanning || recycleUnavailable) return;
+    try {
+      const ids =
+        selection.mode === 'all'
+          ? await window.api.listFileIds({ ...baseQuery, page: 1, pageSize: 1000 })
+          : selection.keys;
+      if (ids.length === 0) {
+        pushNotice('info', '当前没有可删除的文件');
+        return;
+      }
+      if (ids.length > 200_000) {
+        pushNotice('warning', '一次最多删除 200000 个文件，请先收窄筛选条件');
+        return;
+      }
+      await requestDelete(ids);
+    } catch (error) {
+      pushNotice('error', `读取待删除文件失败：${describeError(error)}`);
+    }
+  };
+
+  if (!overview?.scan) {
+    return (
+      <div className="files-page">
+        <PageHeader title={COPY.navFiles} />
+        <Card className="guide-card">
+          <Empty description={COPY.noScanYet}>
+            <Button type="primary" onClick={openScanModal}>
+              {COPY.firstScanAction}
+            </Button>
+          </Empty>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="files-page">
+      <PageHeader
+        title={COPY.navFiles}
+        subtitle={
+          <span>
+            索引包含 {formatCount(overview.scan.totalFiles)} 个文件 · 上次扫描{' '}
+            {formatDateTime(overview.scan.finishedAt)}
+          </span>
+        }
+      />
+
+      <div className="panel files-panel">
+        <FilesToolbar
+          filters={filters}
+          searchInput={searchInput}
+          drives={scannedDrives}
+          onFiltersChange={updateFilters}
+          onSearchChange={setSearchInput}
+          onClear={handleClear}
+          onRemoveTag={handleRemoveTag}
+        />
+        <div className="files-summary">
+          <Typography.Text>
+            共 <strong>{formatCount(total)}</strong> 个文件，合计{' '}
+            <strong>{formatBytes(totalBytes)}</strong>
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            {loading
+              ? '正在读取索引…'
+              : items.length < total
+                ? `已加载 ${formatCount(items.length)} 个，滚动继续加载`
+                : '已按当前条件全部加载'}
+          </Typography.Text>
+        </div>
+        <FileTable
+          items={items}
+          total={total}
+          loading={loading}
+          loadingMore={loadingMore}
+          sort={sort}
+          selection={selection}
+          hasActiveFilters={filtered}
+          onSortChange={handleSortChange}
+          onSelectionChange={setSelection}
+          onLoadMore={loadMore}
+          onOpenDetail={openDetail}
+          onOpenExplorer={(path) => void openInExplorer(path)}
+          onFilterFolder={handleFilterFolder}
+          onClearFilters={handleClear}
+        />
+      </div>
+
+      {selectedTotal > 0 ? (
+        <BulkActionBar
+          count={selectedTotal}
+          bytes={selectedSize}
+          allFiltered={selection.mode === 'all'}
+          total={total}
+          canSelectAll={showSelectAll}
+          onSelectAll={() =>
+            setSelection(selectAllFiltered(items.map((item) => item.id)))
+          }
+          onClear={() => setSelection(clearSelection())}
+          onDelete={() => void handleDelete()}
+          deleteDisabled={scanning || recycleUnavailable}
+          deleteHint={scanning ? '扫描完成后可删除文件' : COPY.recycleBinUnavailable}
+        />
+      ) : null}
+    </div>
+  );
+}

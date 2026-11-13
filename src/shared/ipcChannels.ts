@@ -1,0 +1,55 @@
+export const IPC = {
+  appInfo: 'app:info',
+  appOpenPath: 'app:open-path',
+  appShowItemInFolder: 'app:show-item-in-folder',
+  appCopyText: 'app:copy-text',
+  appMinimize: 'app:minimize',
+  appMaximizeToggle: 'app:maximize-toggle',
+  appClose: 'app:close',
+  appOpenRecycleBin: 'app:open-recycle-bin',
+
+  settingsGet: 'settings:get',
+  settingsUpdate: 'settings:update',
+  drivesList: 'drives:list',
+  drivesRefresh: 'drives:refresh',
+
+  scanGetState: 'scan:get-state',
+  scanStart: 'scan:start',
+  scanPause: 'scan:pause',
+  scanResume: 'scan:resume',
+  scanCancel: 'scan:cancel',
+  scanCloseConfirm: 'scan:close-confirm',
+  scanEvent: 'scan:event',
+
+  homeOverview: 'home:overview',
+
+  filesQuery: 'files:query',
+  filesListIds: 'files:list-ids',
+  filesGet: 'files:get',
+  filesFacets: 'files:facets',
+
+  duplicatesState: 'duplicates:state',
+  duplicatesStart: 'duplicates:start',
+  duplicatesCancel: 'duplicates:cancel',
+  duplicatesGroups: 'duplicates:groups',
+  duplicatesMembers: 'duplicates:members',
+  duplicatesEvent: 'duplicates:event',
+
+  deletePreview: 'delete:preview',
+  deleteExecute: 'delete:execute',
+  deleteCancel: 'delete:cancel',
+  deleteStatus: 'delete:status',
+  deleteEvent: 'delete:event',
+  longTrashList: 'long-trash:list',
+  longTrashRestore: 'long-trash:restore',
+  skippedList: 'skipped:list',
+
+  backupList: 'backup:list',
+  backupCreate: 'backup:create',
+  backupRestore: 'backup:restore',
+
+  dataClear: 'data:clear',
+  dataInfo: 'data:info',
+} as const;
+
+export type IpcChannel = (typeof IPC)[keyof typeof IPC];
