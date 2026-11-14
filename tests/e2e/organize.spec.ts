@@ -55,6 +55,11 @@ test.beforeAll(async () => {
   for (let i = 1; i <= 45; i++) {
     fs.writeFileSync(path.join(fixture, `batch-${String(i).padStart(2, '0')}.txt`), `batch ${i}`);
   }
+  fs.mkdirSync(path.join(fixture, 'smart'));
+  fs.writeFileSync(path.join(fixture, 'smart', 'movie.mp4'), 'fake video bytes');
+  fs.writeFileSync(path.join(fixture, 'smart', 'pic.png'), 'fake image bytes');
+  fs.writeFileSync(path.join(fixture, 'smart', 'note.txt'), 'smart note');
+  fs.writeFileSync(path.join(fixture, 'smart', 'junk.bin'), 'junk');
   app = await electron.launch({
     executablePath: path.join(project, 'node_modules/electron/dist/electron.exe'),
     args: [project],
@@ -262,4 +267,35 @@ test('下移调整规则顺序，切换优先级改变预览结果', async () =>
   await page.getByRole('button', { name: '生成整理预览', exact: true }).click();
   await expect(rows()).toContainText('同盘规则');
   await expect(rows()).toContainText('同盘');
+});
+
+test('一键智能归类：分类预览、默认不含其他、按需建子目录并移动', async () => {
+  const smartOut = path.join(root, 'smart-output');
+  fs.mkdirSync(smartOut);
+
+  await page.getByText('一键智能归类', { exact: true }).click();
+  await choose('选择来源文件夹', path.join(fixture, 'smart'));
+  await app.evaluate(
+    ({ dialog }, args) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [args.directory] });
+    },
+    { directory: smartOut },
+  );
+  await page.getByRole('button', { name: '选择目标根目录', exact: true }).click();
+
+  await expect(page.getByRole('checkbox', { name: '其他' })).not.toBeChecked();
+  await page.getByRole('button', { name: '生成整理预览', exact: true }).click();
+  await expect(rows()).toHaveCount(3);
+  await expect(rows().filter({ hasText: 'movie.mp4' })).toContainText('视频');
+  await expect(rows().filter({ hasText: 'pic.png' })).toContainText('图片');
+  await expect(rows().filter({ hasText: 'note.txt' })).toContainText('文档');
+  expect(fs.readdirSync(smartOut)).toEqual([]);
+
+  await rows().filter({ hasText: 'movie.mp4' }).locator('input[type=checkbox]').check();
+  await page.getByRole('button', { name: '移动所选文件', exact: true }).click();
+  await modal().getByRole('button', { name: '确认开始移动', exact: true }).click();
+  await expect(page.locator('.organize-results')).toContainText('同盘移动完成');
+  expect(fs.existsSync(path.join(smartOut, '视频', 'movie.mp4'))).toBe(true);
+  expect(fs.existsSync(path.join(fixture, 'smart', 'movie.mp4'))).toBe(false);
+  expect(fs.readdirSync(smartOut)).toEqual(['视频']);
 });

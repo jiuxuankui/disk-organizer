@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { classifyFileName, getExtension } from '@shared/fileTypes';
-import type { OrganizeRule } from '@shared/organize';
+import type { OrganizeRule, SmartCategory } from '@shared/organize';
 import { openDatabase } from '../../src/main/db/connection';
 import { createScan, finalizeScan, setActiveScanId } from '../../src/main/db/scansRepo';
 import { getFileById } from '../../src/main/db/filesRepo';
@@ -114,8 +114,35 @@ function setup() {
   function plan(targetDir = output) {
     return job.plan({ sourceDir, rules: [makeRule(targetDir)], priority: 'order' });
   }
-  return { root, cross, sourceDir, output, trash, db, scanId, drive, deps, job, insert, plan };
+  function planSmart(targetRoot = output, categories: SmartCategory[] = SMART_CATEGORY_LIST) {
+    return job.planSmart({ sourceDir, targetRoot, categories });
+  }
+  return {
+    root,
+    cross,
+    sourceDir,
+    output,
+    trash,
+    db,
+    scanId,
+    drive,
+    deps,
+    job,
+    insert,
+    plan,
+    planSmart,
+  };
 }
+
+const SMART_CATEGORY_LIST: SmartCategory[] = [
+  'video',
+  'image',
+  'document',
+  'audio',
+  'archive',
+  'installer',
+  'other',
+];
 
 describe('safe file organization', () => {
   it('moves real same-drive files, numbers collisions and updates paths/identity', async () => {
@@ -269,5 +296,68 @@ describe('safe file organization', () => {
       autoBackup: false,
       organizeRules: rules,
     });
+  });
+});
+
+describe('smart organize', () => {
+  it('分到类型子文件夹，仅在实际移动时创建子目录', async () => {
+    const s = setup();
+    const video = s.insert('movie.mp4', randomBytes(64));
+    const image = s.insert('pic.png', randomBytes(64));
+    const doc = s.insert('note.txt', 'text');
+    const preview = s.planSmart();
+    expect(preview.items).toHaveLength(3);
+    const bySource = new Map(preview.items.map((item) => [item.source, item]));
+    expect(bySource.get(video.file)?.target).toBe(path.join(s.output, '视频', 'movie.mp4'));
+    expect(bySource.get(image.file)?.target).toBe(path.join(s.output, '图片', 'pic.png'));
+    expect(bySource.get(doc.file)?.target).toBe(path.join(s.output, '文档', 'note.txt'));
+    expect(fs.readdirSync(s.output)).toEqual([]);
+    s.job.start({
+      token: preview.token,
+      fileIds: preview.items.map((item) => item.id),
+      confirmCrossDrive: false,
+    });
+    await s.job.whenIdle();
+    expect(s.job.getState().results.map((item) => item.status)).toEqual([
+      'moved',
+      'moved',
+      'moved',
+    ]);
+    expect(fs.readdirSync(s.output).sort()).toEqual(['图片', '文档', '视频'].sort());
+    expect(fs.existsSync(path.join(s.output, '视频', 'movie.mp4'))).toBe(true);
+    expect(fs.existsSync(path.join(s.output, '图片', 'pic.png'))).toBe(true);
+    expect(fs.existsSync(path.join(s.output, '文档', 'note.txt'))).toBe(true);
+  });
+
+  it('目标根目录已有同名文件时该类别整体不可移动且不改动已有内容', () => {
+    const s = setup();
+    s.insert('a.mp4', 'x');
+    s.insert('b.mp4', 'y');
+    fs.writeFileSync(path.join(s.output, '视频'), 'blocking file');
+    const preview = s.planSmart();
+    expect(preview.items).toHaveLength(2);
+    expect(preview.items.every((item) => !item.allowed)).toBe(true);
+    expect(preview.items.every((item) => item.message.includes('同名文件'))).toBe(true);
+    expect(fs.readFileSync(path.join(s.output, '视频'), 'utf8')).toBe('blocking file');
+  });
+
+  it('未勾选的类别不出现在预览中', () => {
+    const s = setup();
+    s.insert('movie.mp4', 'x');
+    s.insert('pic.png', 'y');
+    const preview = s.planSmart(s.output, ['video']);
+    expect(preview.items).toHaveLength(1);
+    expect(preview.items[0].rule).toBe('视频');
+  });
+
+  it('跨盘智能归类同样需要单独确认', () => {
+    const s = setup();
+    const file = s.insert('movie.mp4', randomBytes(1024));
+    const preview = s.planSmart(s.cross, ['video']);
+    expect(preview.items[0].crossDrive).toBe(true);
+    expect(() =>
+      s.job.start({ token: preview.token, fileIds: [file.id], confirmCrossDrive: false }),
+    ).toThrow('必须明确确认');
+    expect(fs.readdirSync(s.cross)).toEqual([]);
   });
 });

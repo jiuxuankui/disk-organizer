@@ -27,11 +27,15 @@ import { FILE_TYPES } from '@shared/fileTypes';
 import { formatBytes } from '@shared/format';
 import {
   createPresetRule,
+  DEFAULT_SMART_CATEGORIES,
   ORGANIZE_PRESETS,
+  SMART_CATEGORIES,
+  SMART_CATEGORY_LABELS,
   type OrganizePreview,
   type OrganizePriority,
   type OrganizeRule,
   type OrganizeState,
+  type SmartCategory,
 } from '@shared/organize';
 import PageHeader from '../components/PageHeader';
 import { useBackClose } from '../lib/back';
@@ -48,6 +52,9 @@ export default function OrganizePage(): React.JSX.Element {
     structuredClone(settings?.organizeRules ?? []),
   );
   const [sourceDir, setSourceDir] = useState('');
+  const [mode, setMode] = useState<'rules' | 'smart'>('rules');
+  const [smartTargetRoot, setSmartTargetRoot] = useState('');
+  const [smartCategories, setSmartCategories] = useState<SmartCategory[]>(DEFAULT_SMART_CATEGORIES);
   const [preview, setPreview] = useState<OrganizePreview | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
   const [visibleCount, setVisibleCount] = useState(ORGANIZE_PREVIEW_BATCH);
@@ -155,6 +162,16 @@ export default function OrganizePage(): React.JSX.Element {
       setError(describeError(cause));
     }
   }
+  async function chooseSmartTarget(): Promise<void> {
+    try {
+      const directory = await window.api.selectOrganizeDirectory();
+      if (!directory) return;
+      setSmartTargetRoot(directory);
+      invalidate();
+    } catch (cause) {
+      setError(describeError(cause));
+    }
+  }
   async function saveRules(): Promise<void> {
     setPending(true);
     setError('');
@@ -197,6 +214,25 @@ export default function OrganizePage(): React.JSX.Element {
       setPending(false);
     }
   }
+  async function planSmart(): Promise<void> {
+    setPending(true);
+    setError('');
+    invalidate();
+    try {
+      setPreview(
+        await window.api.previewSmartOrganize({
+          sourceDir,
+          targetRoot: smartTargetRoot,
+          categories: smartCategories,
+        }),
+      );
+      setVisibleCount(ORGANIZE_PREVIEW_BATCH);
+    } catch (cause) {
+      setError(describeError(cause));
+    } finally {
+      setPending(false);
+    }
+  }
   async function start(): Promise<void> {
     if (!preview) return;
     setPending(true);
@@ -230,11 +266,30 @@ export default function OrganizePage(): React.JSX.Element {
     <div className="organize-page">
       <PageHeader title="归类整理" subtitle="自定义规则 · 先预览再移动 · 不覆盖已有文件" />
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <Segmented
+          aria-label="整理方式"
+          value={mode}
+          disabled={running}
+          options={[
+            { label: '自定义规则', value: 'rules' },
+            { label: '一键智能归类', value: 'smart' },
+          ]}
+          onChange={(value) => {
+            setMode(value as 'rules' | 'smart');
+            invalidate();
+          }}
+        />
         <Alert
           type="info"
           showIcon
-          message="按所选优先级匹配规则，跨盘须确认"
-          description="命中多条规则时，可按规则顺序（取第一条）或同盘优先。跨盘串行复制并校验 SHA-256，成功后原件进入 Windows 回收站或长路径回收区；回收不可用时停止。只处理已扫描的文件，不移动文件夹。"
+          message={
+            mode === 'smart' ? '一键智能归类，跨盘须确认' : '按所选优先级匹配规则，跨盘须确认'
+          }
+          description={
+            mode === 'smart'
+              ? '按文件类型分到目标根目录下的“视频、图片、文档、音乐、压缩包、安装包、其他”子文件夹；子文件夹只在真正有文件移入时才创建。跨盘串行复制并校验 SHA-256，成功后原件进入 Windows 回收站或长路径回收区；回收不可用时停止。只处理已扫描的文件，不移动文件夹。'
+              : '命中多条规则时，可按规则顺序（取第一条）或同盘优先。跨盘串行复制并校验 SHA-256，成功后原件进入 Windows 回收站或长路径回收区；回收不可用时停止。只处理已扫描的文件，不移动文件夹。'
+          }
         />
         {error ? <Alert type="error" showIcon message={error} /> : null}
         <Card title="1. 整理范围">
@@ -257,264 +312,297 @@ export default function OrganizePage(): React.JSX.Element {
             </Typography.Text>
           </Space>
         </Card>
-        <Card
-          title="2. 自定义归类规则"
-          extra={
-            <Space>
-              <Dropdown
-                disabled={locked || rules.length >= 50}
-                menu={{
-                  items: ORGANIZE_PRESETS.map((preset) => ({
-                    key: preset.key,
-                    label: preset.ruleName,
-                  })),
-                  onClick: ({ key }) => addPreset(key),
-                }}
-              >
+        {mode === 'rules' ? (
+          <Card
+            title="2. 自定义归类规则"
+            extra={
+              <Space>
+                <Dropdown
+                  disabled={locked || rules.length >= 50}
+                  menu={{
+                    items: ORGANIZE_PRESETS.map((preset) => ({
+                      key: preset.key,
+                      label: preset.ruleName,
+                    })),
+                    onClick: ({ key }) => addPreset(key),
+                  }}
+                >
+                  <Button
+                    disabled={locked || rules.length >= 50}
+                    icon={<AppstoreAddOutlined aria-hidden />}
+                  >
+                    添加预设
+                  </Button>
+                </Dropdown>
                 <Button
                   disabled={locked || rules.length >= 50}
-                  icon={<AppstoreAddOutlined aria-hidden />}
+                  icon={<PlusOutlined aria-hidden />}
+                  onClick={() => {
+                    setRules([
+                      ...rules,
+                      {
+                        id: crypto.randomUUID(),
+                        name: `规则 ${rules.length + 1}`,
+                        enabled: true,
+                        type: 'all',
+                        extensions: [],
+                        nameContains: '',
+                        targetDir: '',
+                        minSize: null,
+                        maxSize: null,
+                        mtimeFrom: null,
+                        mtimeTo: null,
+                        pathContains: '',
+                        matchMode: 'all',
+                      },
+                    ]);
+                    invalidate();
+                  }}
                 >
-                  添加预设
+                  添加规则
                 </Button>
-              </Dropdown>
-              <Button
-                disabled={locked || rules.length >= 50}
-                icon={<PlusOutlined aria-hidden />}
-                onClick={() => {
-                  setRules([
-                    ...rules,
-                    {
-                      id: crypto.randomUUID(),
-                      name: `规则 ${rules.length + 1}`,
-                      enabled: true,
-                      type: 'all',
-                      extensions: [],
-                      nameContains: '',
-                      targetDir: '',
-                      minSize: null,
-                      maxSize: null,
-                      mtimeFrom: null,
-                      mtimeTo: null,
-                      pathContains: '',
-                      matchMode: 'all',
-                    },
-                  ]);
-                  invalidate();
-                }}
-              >
-                添加规则
-              </Button>
-              <Button disabled={locked} onClick={() => void saveRules()}>
-                保存规则
-              </Button>
+                <Button disabled={locked} onClick={() => void saveRules()}>
+                  保存规则
+                </Button>
+              </Space>
+            }
+          >
+            <Typography.Paragraph type="secondary">
+              类型、扩展名、名称、大小、时间和路径等条件可按“全部满足 /
+              任一满足”组合；留空的条件不参与匹配，全部留空时匹配全部文件。命中多条规则时按上方“规则优先级”选择：按规则顺序取第一条，或同盘优先。所有规则指向同一个目标即可集中归档。“添加预设”可一键加入视频、图片、文档、音乐、压缩包、安装包规则，添加后只需选择目标文件夹。
+            </Typography.Paragraph>
+            <Space align="center" wrap>
+              <Typography.Text>命中多条规则时：</Typography.Text>
+              <Segmented
+                aria-label="规则优先级"
+                value={priority}
+                disabled={running}
+                options={[
+                  { label: '按规则顺序', value: 'order' },
+                  { label: '同盘优先', value: 'sameDrive' },
+                ]}
+                onChange={(value) => void changePriority(value as OrganizePriority)}
+              />
             </Space>
-          }
-        >
-          <Typography.Paragraph type="secondary">
-            类型、扩展名、名称、大小、时间和路径等条件可按“全部满足 /
-            任一满足”组合；留空的条件不参与匹配，全部留空时匹配全部文件。命中多条规则时按上方“规则优先级”选择：按规则顺序取第一条，或同盘优先。所有规则指向同一个目标即可集中归档。“添加预设”可一键加入视频、图片、文档、音乐、压缩包、安装包规则，添加后只需选择目标文件夹。
-          </Typography.Paragraph>
-          <Space align="center" wrap>
-            <Typography.Text>命中多条规则时：</Typography.Text>
-            <Segmented
-              aria-label="规则优先级"
-              value={priority}
-              disabled={running}
-              options={[
-                { label: '按规则顺序', value: 'order' },
-                { label: '同盘优先', value: 'sameDrive' },
-              ]}
-              onChange={(value) => void changePriority(value as OrganizePriority)}
-            />
-          </Space>
-          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            {rules.length === 0 ? (
-              <Empty description="尚无归类规则，可用“添加预设”快速开始" />
-            ) : (
-              rules.map((rule, index) => (
-                <Card
-                  key={rule.id}
-                  size="small"
-                  className="organize-rule"
-                  title={
-                    <Space>
-                      <Switch
-                        aria-label={`启用规则 ${index + 1}`}
-                        disabled={locked}
-                        checked={rule.enabled}
-                        onChange={(enabled) => changeRule(rule.id, { enabled })}
-                      />
-                      <Typography.Text>规则 {index + 1}</Typography.Text>
-                    </Space>
-                  }
-                  extra={
-                    <Space>
-                      <Button
-                        disabled={locked || index === 0}
-                        onClick={() => {
-                          const next = [...rules];
-                          [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                          setRules(next);
-                          invalidate();
-                        }}
-                      >
-                        上移
-                      </Button>
-                      <Button
-                        disabled={locked || index === rules.length - 1}
-                        onClick={() => {
-                          const next = [...rules];
-                          [next[index], next[index + 1]] = [next[index + 1], next[index]];
-                          setRules(next);
-                          invalidate();
-                        }}
-                      >
-                        下移
-                      </Button>
-                      <Button
-                        disabled={locked}
-                        onClick={() => {
-                          setRules(rules.filter((item) => item.id !== rule.id));
-                          invalidate();
-                        }}
-                      >
-                        移除规则
-                      </Button>
-                    </Space>
-                  }
-                >
-                  <Space direction="vertical" style={{ width: '100%' }}>
-                    <Space wrap>
-                      <Input
-                        aria-label="规则名称"
-                        value={rule.name}
-                        disabled={locked}
-                        style={{ width: 160 }}
-                        onChange={(event) => changeRule(rule.id, { name: event.target.value })}
-                      />
-                      <Select
-                        aria-label="规则文件类型"
-                        value={rule.type}
-                        disabled={locked}
-                        style={{ width: 130 }}
-                        options={[
-                          { value: 'all', label: '全部类型' },
-                          ...FILE_TYPES.map((type) => ({ value: type.key, label: type.label })),
-                        ]}
-                        onChange={(type) => changeRule(rule.id, { type })}
-                      />
-                      <Input
-                        aria-label="扩展名条件"
-                        placeholder="扩展名：txt,pdf（可留空）"
-                        value={rule.extensions.join(',')}
-                        disabled={locked}
-                        style={{ width: 230 }}
-                        onChange={(event) =>
-                          changeRule(rule.id, {
-                            extensions: event.target.value ? event.target.value.split(/[,，]/) : [],
-                          })
-                        }
-                      />
-                      <Input
-                        aria-label="文件名包含"
-                        placeholder="文件名包含（可留空）"
-                        value={rule.nameContains}
-                        disabled={locked}
-                        style={{ width: 200 }}
-                        onChange={(event) =>
-                          changeRule(rule.id, { nameContains: event.target.value })
-                        }
-                      />
-                    </Space>
-                    <Space.Compact style={{ width: '100%' }}>
-                      <Input
-                        readOnly
-                        aria-label="规则目标文件夹"
-                        placeholder="选择归类后的目标文件夹"
-                        value={rule.targetDir}
-                      />
-                      <Button disabled={locked} onClick={() => void chooseDirectory(rule.id)}>
-                        选择目标文件夹
-                      </Button>
-                    </Space.Compact>
-                    <Space wrap>
-                      <Select
-                        aria-label="匹配方式"
-                        value={rule.matchMode}
-                        disabled={locked}
-                        style={{ width: 120 }}
-                        options={[
-                          { value: 'all', label: '全部满足' },
-                          { value: 'any', label: '任一满足' },
-                        ]}
-                        onChange={(matchMode) => changeRule(rule.id, { matchMode })}
-                      />
-                      <Space size={6}>
-                        <Typography.Text>最小大小</Typography.Text>
-                        <InputNumber
-                          aria-label="最小大小"
-                          min={0}
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              {rules.length === 0 ? (
+                <Empty description="尚无归类规则，可用“添加预设”快速开始" />
+              ) : (
+                rules.map((rule, index) => (
+                  <Card
+                    key={rule.id}
+                    size="small"
+                    className="organize-rule"
+                    title={
+                      <Space>
+                        <Switch
+                          aria-label={`启用规则 ${index + 1}`}
                           disabled={locked}
-                          value={rule.minSize === null ? null : rule.minSize / MB}
-                          placeholder="不限"
-                          addonAfter="MB"
-                          style={{ width: 120 }}
-                          onChange={(value) =>
+                          checked={rule.enabled}
+                          onChange={(enabled) => changeRule(rule.id, { enabled })}
+                        />
+                        <Typography.Text>规则 {index + 1}</Typography.Text>
+                      </Space>
+                    }
+                    extra={
+                      <Space>
+                        <Button
+                          disabled={locked || index === 0}
+                          onClick={() => {
+                            const next = [...rules];
+                            [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                            setRules(next);
+                            invalidate();
+                          }}
+                        >
+                          上移
+                        </Button>
+                        <Button
+                          disabled={locked || index === rules.length - 1}
+                          onClick={() => {
+                            const next = [...rules];
+                            [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                            setRules(next);
+                            invalidate();
+                          }}
+                        >
+                          下移
+                        </Button>
+                        <Button
+                          disabled={locked}
+                          onClick={() => {
+                            setRules(rules.filter((item) => item.id !== rule.id));
+                            invalidate();
+                          }}
+                        >
+                          移除规则
+                        </Button>
+                      </Space>
+                    }
+                  >
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <Space wrap>
+                        <Input
+                          aria-label="规则名称"
+                          value={rule.name}
+                          disabled={locked}
+                          style={{ width: 160 }}
+                          onChange={(event) => changeRule(rule.id, { name: event.target.value })}
+                        />
+                        <Select
+                          aria-label="规则文件类型"
+                          value={rule.type}
+                          disabled={locked}
+                          style={{ width: 130 }}
+                          options={[
+                            { value: 'all', label: '全部类型' },
+                            ...FILE_TYPES.map((type) => ({ value: type.key, label: type.label })),
+                          ]}
+                          onChange={(type) => changeRule(rule.id, { type })}
+                        />
+                        <Input
+                          aria-label="扩展名条件"
+                          placeholder="扩展名：txt,pdf（可留空）"
+                          value={rule.extensions.join(',')}
+                          disabled={locked}
+                          style={{ width: 230 }}
+                          onChange={(event) =>
                             changeRule(rule.id, {
-                              minSize: value === null ? null : Math.round(value * MB),
+                              extensions: event.target.value
+                                ? event.target.value.split(/[,，]/)
+                                : [],
                             })
                           }
                         />
-                      </Space>
-                      <Space size={6}>
-                        <Typography.Text>最大大小</Typography.Text>
-                        <InputNumber
-                          aria-label="最大大小"
-                          min={0}
+                        <Input
+                          aria-label="文件名包含"
+                          placeholder="文件名包含（可留空）"
+                          value={rule.nameContains}
                           disabled={locked}
-                          value={rule.maxSize === null ? null : rule.maxSize / MB}
-                          placeholder="不限"
-                          addonAfter="MB"
-                          style={{ width: 120 }}
-                          onChange={(value) =>
-                            changeRule(rule.id, {
-                              maxSize: value === null ? null : Math.round(value * MB),
-                            })
+                          style={{ width: 200 }}
+                          onChange={(event) =>
+                            changeRule(rule.id, { nameContains: event.target.value })
                           }
                         />
                       </Space>
-                      <DatePicker.RangePicker
-                        aria-label="修改时间起止"
-                        disabled={locked}
-                        value={[
-                          rule.mtimeFrom !== null ? dayjs(rule.mtimeFrom) : null,
-                          rule.mtimeTo !== null ? dayjs(rule.mtimeTo) : null,
-                        ]}
-                        onChange={(dates) =>
-                          changeRule(rule.id, {
-                            mtimeFrom: dates?.[0] ? dates[0].startOf('day').valueOf() : null,
-                            mtimeTo: dates?.[1] ? dates[1].endOf('day').valueOf() : null,
-                          })
-                        }
-                      />
-                      <Input
-                        aria-label="路径包含"
-                        placeholder="路径包含（可留空）"
-                        value={rule.pathContains}
-                        disabled={locked}
-                        style={{ width: 200 }}
-                        onChange={(event) =>
-                          changeRule(rule.id, { pathContains: event.target.value })
-                        }
-                      />
+                      <Space.Compact style={{ width: '100%' }}>
+                        <Input
+                          readOnly
+                          aria-label="规则目标文件夹"
+                          placeholder="选择归类后的目标文件夹"
+                          value={rule.targetDir}
+                        />
+                        <Button disabled={locked} onClick={() => void chooseDirectory(rule.id)}>
+                          选择目标文件夹
+                        </Button>
+                      </Space.Compact>
+                      <Space wrap>
+                        <Select
+                          aria-label="匹配方式"
+                          value={rule.matchMode}
+                          disabled={locked}
+                          style={{ width: 120 }}
+                          options={[
+                            { value: 'all', label: '全部满足' },
+                            { value: 'any', label: '任一满足' },
+                          ]}
+                          onChange={(matchMode) => changeRule(rule.id, { matchMode })}
+                        />
+                        <Space size={6}>
+                          <Typography.Text>最小大小</Typography.Text>
+                          <InputNumber
+                            aria-label="最小大小"
+                            min={0}
+                            disabled={locked}
+                            value={rule.minSize === null ? null : rule.minSize / MB}
+                            placeholder="不限"
+                            addonAfter="MB"
+                            style={{ width: 120 }}
+                            onChange={(value) =>
+                              changeRule(rule.id, {
+                                minSize: value === null ? null : Math.round(value * MB),
+                              })
+                            }
+                          />
+                        </Space>
+                        <Space size={6}>
+                          <Typography.Text>最大大小</Typography.Text>
+                          <InputNumber
+                            aria-label="最大大小"
+                            min={0}
+                            disabled={locked}
+                            value={rule.maxSize === null ? null : rule.maxSize / MB}
+                            placeholder="不限"
+                            addonAfter="MB"
+                            style={{ width: 120 }}
+                            onChange={(value) =>
+                              changeRule(rule.id, {
+                                maxSize: value === null ? null : Math.round(value * MB),
+                              })
+                            }
+                          />
+                        </Space>
+                        <DatePicker.RangePicker
+                          aria-label="修改时间起止"
+                          disabled={locked}
+                          value={[
+                            rule.mtimeFrom !== null ? dayjs(rule.mtimeFrom) : null,
+                            rule.mtimeTo !== null ? dayjs(rule.mtimeTo) : null,
+                          ]}
+                          onChange={(dates) =>
+                            changeRule(rule.id, {
+                              mtimeFrom: dates?.[0] ? dates[0].startOf('day').valueOf() : null,
+                              mtimeTo: dates?.[1] ? dates[1].endOf('day').valueOf() : null,
+                            })
+                          }
+                        />
+                        <Input
+                          aria-label="路径包含"
+                          placeholder="路径包含（可留空）"
+                          value={rule.pathContains}
+                          disabled={locked}
+                          style={{ width: 200 }}
+                          onChange={(event) =>
+                            changeRule(rule.id, { pathContains: event.target.value })
+                          }
+                        />
+                      </Space>
                     </Space>
-                  </Space>
-                </Card>
-              ))
-            )}
-          </Space>
-        </Card>
+                  </Card>
+                ))
+              )}
+            </Space>
+          </Card>
+        ) : (
+          <Card title="2. 一键智能归类">
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Space.Compact style={{ width: '100%' }}>
+                <Input
+                  readOnly
+                  aria-label="智能归类目标根目录"
+                  placeholder="选择目标根目录，将按类型分到其子文件夹"
+                  value={smartTargetRoot}
+                />
+                <Button disabled={locked} onClick={() => void chooseSmartTarget()}>
+                  选择目标根目录
+                </Button>
+              </Space.Compact>
+              <Space direction="vertical" size={4}>
+                <Typography.Text>要归入的类别（“其他”默认不勾选）：</Typography.Text>
+                <Checkbox.Group
+                  aria-label="归类类别"
+                  value={smartCategories}
+                  disabled={locked}
+                  options={SMART_CATEGORIES.map((category) => ({
+                    label: SMART_CATEGORY_LABELS[category],
+                    value: category,
+                  }))}
+                  onChange={(values) => setSmartCategories(values as SmartCategory[])}
+                />
+              </Space>
+            </Space>
+          </Card>
+        )}
         <Card
           title="3. 预览与勾选"
           className="organize-preview"
@@ -522,9 +610,15 @@ export default function OrganizePage(): React.JSX.Element {
             <Button
               type="primary"
               aria-label="生成整理预览"
-              disabled={locked || !sourceDir || rules.length === 0}
+              disabled={
+                locked ||
+                !sourceDir ||
+                (mode === 'smart'
+                  ? !smartTargetRoot || smartCategories.length === 0
+                  : rules.length === 0)
+              }
               loading={pending}
-              onClick={() => void plan()}
+              onClick={() => void (mode === 'smart' ? planSmart() : plan())}
             >
               生成整理预览
             </Button>

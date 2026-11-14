@@ -5,6 +5,8 @@ import {
   organizeRuleSchema,
   organizeRulesSchema,
   organizeStartSchema,
+  smartCategoryOf,
+  smartOrganizePreviewSchema,
   type OrganizeRule,
 } from '@shared/organize';
 import { chooseOrganizeRule, ruleMatchesFile } from '../../src/main/services/organizeCore';
@@ -176,5 +178,28 @@ describe('organize rules and IPC boundary', () => {
       false,
     );
     expect(organizeRuleSchema.safeParse({ ...rule, matchMode: 'neither' }).success).toBe(false);
+  });
+
+  it('maps file types to smart categories and validates smart preview input', () => {
+    expect(smartCategoryOf('video')).toBe('video');
+    expect(smartCategoryOf('image')).toBe('image');
+    expect(smartCategoryOf('document')).toBe('document');
+    expect(smartCategoryOf('audio')).toBe('audio');
+    expect(smartCategoryOf('archive')).toBe('archive');
+    expect(smartCategoryOf('installer')).toBe('installer');
+    expect(smartCategoryOf('diskImage')).toBe('other');
+    expect(smartCategoryOf('program')).toBe('other');
+    expect(smartCategoryOf('other')).toBe('other');
+
+    const base = { sourceDir: 'C:\\docs', targetRoot: 'D:\\归档', categories: ['video'] };
+    expect(smartOrganizePreviewSchema.parse(base).categories).toEqual(['video']);
+    expect(smartOrganizePreviewSchema.safeParse({ ...base, categories: [] }).success).toBe(false);
+    expect(smartOrganizePreviewSchema.safeParse({ ...base, categories: ['bad'] }).success).toBe(
+      false,
+    );
+    expect(
+      smartOrganizePreviewSchema.safeParse({ sourceDir: 'C:\\docs', categories: ['video'] })
+        .success,
+    ).toBe(false);
   });
 });

@@ -1,6 +1,10 @@
 import { dialog, ipcMain } from 'electron';
 import { IPC } from '@shared/ipcChannels';
-import { organizePreviewSchema, organizeStartSchema } from '@shared/organize';
+import {
+  organizePreviewSchema,
+  organizeStartSchema,
+  smartOrganizePreviewSchema,
+} from '@shared/organize';
 import { parseIpc } from './schemas';
 import type { IpcContext } from './context';
 
@@ -25,6 +29,10 @@ export function registerOrganizeIpc(ctx: IpcContext): void {
   ipcMain.handle(IPC.organizePreview, (_event, raw: unknown) => {
     ensureIdle(ctx);
     return ctx.organize.plan(parseIpc(organizePreviewSchema, raw, '整理预览'));
+  });
+  ipcMain.handle(IPC.organizeSmartPreview, (_event, raw: unknown) => {
+    ensureIdle(ctx);
+    return ctx.organize.planSmart(parseIpc(smartOrganizePreviewSchema, raw, '智能归类预览'));
   });
   ipcMain.handle(IPC.organizeStart, (_event, raw: unknown) => {
     ensureIdle(ctx);

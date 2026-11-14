@@ -26,6 +26,7 @@ import type {
   OrganizePreviewRequest,
   OrganizeStartRequest,
   OrganizeState,
+  SmartOrganizePreviewRequest,
 } from './organize';
 
 export interface StartScanInput {
@@ -42,6 +43,7 @@ export interface OpenPathResult {
 export interface DiskOrganizerApi {
   selectOrganizeDirectory(): Promise<string | null>;
   previewOrganize(input: OrganizePreviewRequest): Promise<OrganizePreview>;
+  previewSmartOrganize(input: SmartOrganizePreviewRequest): Promise<OrganizePreview>;
   startOrganize(input: OrganizeStartRequest): Promise<OrganizeState>;
   getOrganizeState(): Promise<OrganizeState>;
   cancelOrganize(): Promise<OrganizeState>;

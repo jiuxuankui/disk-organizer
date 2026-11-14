@@ -71,6 +71,54 @@ export type OrganizeRule = z.infer<typeof organizeRuleSchema>;
 export type OrganizePreviewRequest = z.infer<typeof organizePreviewSchema>;
 export type OrganizeStartRequest = z.infer<typeof organizeStartSchema>;
 
+export const SMART_CATEGORIES = [
+  'video',
+  'image',
+  'document',
+  'audio',
+  'archive',
+  'installer',
+  'other',
+] as const;
+export type SmartCategory = (typeof SMART_CATEGORIES)[number];
+
+export const SMART_CATEGORY_LABELS: Record<SmartCategory, string> = {
+  video: '视频',
+  image: '图片',
+  document: '文档',
+  audio: '音乐',
+  archive: '压缩包',
+  installer: '安装包',
+  other: '其他',
+};
+
+export const DEFAULT_SMART_CATEGORIES: SmartCategory[] = SMART_CATEGORIES.filter(
+  (category) => category !== 'other',
+);
+
+export function smartCategoryOf(type: FileTypeKey): SmartCategory {
+  switch (type) {
+    case 'video':
+    case 'image':
+    case 'document':
+    case 'audio':
+    case 'archive':
+    case 'installer':
+      return type;
+    default:
+      return 'other';
+  }
+}
+
+export const smartOrganizePreviewSchema = z
+  .object({
+    sourceDir: localOrganizePath,
+    targetRoot: localOrganizePath,
+    categories: z.array(z.enum(SMART_CATEGORIES)).min(1, '至少选择一个类别').max(7),
+  })
+  .strict();
+export type SmartOrganizePreviewRequest = z.infer<typeof smartOrganizePreviewSchema>;
+
 export interface OrganizePreset {
   key: string;
   ruleName: string;

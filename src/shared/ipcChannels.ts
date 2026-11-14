@@ -1,6 +1,7 @@
 export const IPC = {
   organizeDirectory: 'organize:directory',
   organizePreview: 'organize:preview',
+  organizeSmartPreview: 'organize:smart-preview',
   organizeStart: 'organize:start',
   organizeState: 'organize:state',
   organizeCancel: 'organize:cancel',
