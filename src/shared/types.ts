@@ -127,6 +127,14 @@ export interface FolderUsage {
   count: number;
 }
 
+export interface FolderFacet {
+  drive: string;
+  path: string;
+  name: string;
+  bytes: number;
+  count: number;
+}
+
 export interface DriveOverview {
   drive: string;
   label: string;

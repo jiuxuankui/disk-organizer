@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { FileQuery, FileRecord, FileTypeKey, PagedResult } from '@shared/types';
+import type { FileQuery, FileRecord, FileTypeKey, FolderFacet, PagedResult } from '@shared/types';
 import { isFileTypeKey } from '@shared/fileTypes';
 import { normalizePathKey } from '../services/filesystem';
 
@@ -156,6 +156,35 @@ export function queryFileIds(db: DatabaseSync, scanId: number, query: FileQuery)
     .prepare(`SELECT id FROM files WHERE ${where.sql}`)
     .all(...where.params) as unknown as Array<{ id: number }>;
   return rows.map((row) => row.id);
+}
+
+export function listRootFolders(
+  db: DatabaseSync,
+  scanId: number,
+  drive: string | null,
+): FolderFacet[] {
+  const params: Array<string | number> = [scanId];
+  let sql = `SELECT drive, root_dir, COALESCE(SUM(size), 0) AS bytes, COUNT(*) AS count
+     FROM files
+     WHERE scan_id = ? AND root_dir <> ''`;
+  if (drive) {
+    sql += ' AND drive = ?';
+    params.push(drive);
+  }
+  sql += ' GROUP BY drive, root_dir ORDER BY bytes DESC, drive ASC, root_dir ASC';
+  const rows = db.prepare(sql).all(...params) as Array<{
+    drive: string;
+    root_dir: string;
+    bytes: number;
+    count: number;
+  }>;
+  return rows.map((row) => ({
+    drive: row.drive,
+    path: `${row.drive}\\${row.root_dir}`,
+    name: row.root_dir,
+    bytes: row.bytes,
+    count: row.count,
+  }));
 }
 
 export function getFileById(db: DatabaseSync, scanId: number, fileId: number): FileRecord | null {

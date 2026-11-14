@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Empty, Typography } from 'antd';
-import type { FileRecord, PagedResult } from '@shared/types';
+import type { FileRecord, FolderFacet, PagedResult } from '@shared/types';
 import { COPY } from '@shared/copy';
 import { PAGE_SIZE } from '@shared/constants';
 import { formatBytes, formatCount, formatDateTime } from '@shared/format';
@@ -52,6 +52,7 @@ export default function FilesPage(): React.JSX.Element {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<FileSort>(DEFAULT_FILE_SORT);
+  const [folders, setFolders] = useState<FolderFacet[]>([]);
   const [items, setItems] = useState<FileRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
@@ -78,6 +79,25 @@ export default function FilesPage(): React.JSX.Element {
     const timer = setTimeout(() => setSearch(searchInput.trim()), 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  useEffect(() => {
+    if (scanId === null) {
+      setFolders([]);
+      return;
+    }
+    let active = true;
+    window.api
+      .listFileFolders({ drive: null })
+      .then((result) => {
+        if (active) setFolders(result);
+      })
+      .catch((error: unknown) => {
+        if (active) pushNotice('error', `读取文件夹列表失败：${describeError(error)}`);
+      });
+    return () => {
+      active = false;
+    };
+  }, [scanId, dataVersion, pushNotice]);
 
   useEffect(() => {
     if (scanId === null) {
@@ -296,6 +316,7 @@ export default function FilesPage(): React.JSX.Element {
           filters={filters}
           searchInput={searchInput}
           drives={scannedDrives}
+          folders={folders}
           onFiltersChange={updateFilters}
           onSearchChange={setSearchInput}
           onClear={handleClear}

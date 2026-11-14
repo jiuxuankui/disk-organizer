@@ -3,7 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { FileQuery, FileTypeKey } from '@shared/types';
 import { openDatabase } from '../../src/main/db/connection';
 import { createScan, finalizeScan, setActiveScanId } from '../../src/main/db/scansRepo';
-import { getFileById, queryFileIds, queryFiles } from '../../src/main/db/filesRepo';
+import { getFileById, listRootFolders, queryFileIds, queryFiles } from '../../src/main/db/filesRepo';
 import { createTempDbPath } from './helpers';
 
 const cleanups: Array<() => void> = [];
@@ -150,6 +150,28 @@ describe('files repository', () => {
           baseQuery({ drive: 'C:', type: 'video', minSize: 350 }),
         ),
       ).toMatchObject({ total: 2, totalBytes: 900 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('lists root folders with counts and sizes, optionally scoped to one drive', () => {
+    const db = tempDb();
+    try {
+      const scanId = seed(db);
+      const all = listRootFolders(db, scanId, null);
+      expect(all).toEqual([
+        { drive: 'D:', path: 'D:\\Backup', name: 'Backup', bytes: 2000, count: 1 },
+        { drive: 'C:', path: 'C:\\Movies', name: 'Movies', bytes: 1200, count: 3 },
+        { drive: 'C:', path: 'C:\\Pics', name: 'Pics', bytes: 600, count: 2 },
+        { drive: 'C:', path: 'C:\\Docs', name: 'Docs', bytes: 100, count: 1 },
+      ]);
+      expect(listRootFolders(db, scanId, 'C:').map((folder) => folder.name)).toEqual([
+        'Movies',
+        'Pics',
+        'Docs',
+      ]);
+      expect(listRootFolders(db, createScan(db, ['C:'], 4000), null)).toEqual([]);
     } finally {
       db.close();
     }

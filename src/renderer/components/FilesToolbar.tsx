@@ -3,12 +3,15 @@ import { App as AntApp, Button, Input, Modal, Select, Space, Tag, Typography } f
 import type { InputNumberProps } from 'antd';
 import { InputNumber } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
-import type { FileTypeKey } from '@shared/types';
+import type { FileTypeKey, FolderFacet } from '@shared/types';
 import { FILE_TYPES } from '@shared/fileTypes';
+import { formatCount } from '@shared/format';
 import {
   activeFilterTags,
   applySizePreset,
   applyTimePreset,
+  folderFromSelectionKey,
+  folderSelectionKey,
   hasActiveFilters,
   SIZE_PRESETS,
   sizePresetKey,
@@ -30,6 +33,7 @@ export interface FilesToolbarProps {
   filters: FilesFilters;
   searchInput: string;
   drives: DriveFilterOption[];
+  folders: FolderFacet[];
   onFiltersChange: (patch: Partial<FilesFilters>) => void;
   onSearchChange: (value: string) => void;
   onClear: () => void;
@@ -40,6 +44,7 @@ export default function FilesToolbar({
   filters,
   searchInput,
   drives,
+  folders,
   onFiltersChange,
   onSearchChange,
   onClear,
@@ -54,6 +59,25 @@ export default function FilesToolbar({
 
   const tags = activeFilterTags(filters, searchInput);
   const sizeKey = sizePresetKey(filters.minSize, filters.maxSize);
+  const folderKey = folderSelectionKey(filters.folder);
+  const visibleFolders = filters.drive
+    ? folders.filter((folder) => folder.drive === filters.drive)
+    : folders;
+  const folderOptions = visibleFolders.map((folder) => ({
+    value: `root:${folder.path}`,
+    label: `${folder.drive} ${folder.name}（${formatCount(folder.count)} 个）`,
+    title: folder.path,
+  }));
+  if (
+    filters.folder &&
+    !folderOptions.some((option) => option.value === folderKey)
+  ) {
+    folderOptions.unshift({
+      value: folderKey,
+      label: filters.folder.path,
+      title: filters.folder.path,
+    });
+  }
 
   const openCustomSize = (): void => {
     setCustomMin(filters.minSize === null ? null : filters.minSize / MB);
@@ -87,7 +111,7 @@ export default function FilesToolbar({
         <Select
           value={filters.drive ?? ''}
           className="files-select files-select-drive"
-          onChange={(value) => onFiltersChange({ drive: value || null })}
+          onChange={(value) => onFiltersChange({ drive: value || null, folder: null })}
           options={[
             { value: '', label: '全部硬盘' },
             ...drives.map((drive) => ({
@@ -106,6 +130,18 @@ export default function FilesToolbar({
             { value: 'all', label: '全部类型' },
             ...FILE_TYPES.map((item) => ({ value: item.key, label: item.label })),
           ]}
+        />
+        <Select
+          value={folderKey}
+          className="files-select files-select-folder"
+          onChange={(value) => {
+            const folder = folderFromSelectionKey(visibleFolders, value);
+            const owner = folder
+              ? visibleFolders.find((item) => item.path === folder.path)
+              : null;
+            onFiltersChange(owner ? { folder, drive: owner.drive } : { folder });
+          }}
+          options={[{ value: 'all', label: '全部文件夹' }, ...folderOptions]}
         />
         <Select
           value={sizeKey}

@@ -12,6 +12,8 @@ import {
   firstLevelFolder,
   folderFromDirectory,
   folderFromRootPath,
+  folderFromSelectionKey,
+  folderSelectionKey,
   hasActiveFilters,
   SIZE_PRESETS,
   sizePresetKey,
@@ -128,6 +130,23 @@ describe('files filter helpers', () => {
     expect(firstLevelFolder('C:\\Movies')).toBe('Movies');
     expect(firstLevelFolder('C:\\Movies\\Sub')).toBeNull();
     expect(firstLevelFolder('C:\\')).toBeNull();
+  });
+
+  it('maps folder facets to selectable filter values', () => {
+    const folders = [
+      { drive: 'C:', path: 'C:\\Movies', name: 'Movies', bytes: 1200, count: 3 },
+      { drive: 'D:', path: 'D:\\Backup', name: 'Backup', bytes: 2000, count: 1 },
+    ];
+    expect(folderSelectionKey(null)).toBe('all');
+    expect(folderSelectionKey({ path: 'C:\\Movies', scope: 'root' })).toBe(
+      'root:C:\\Movies',
+    );
+    expect(folderFromSelectionKey(folders, 'root:C:\\Movies')).toEqual({
+      path: 'C:\\Movies',
+      scope: 'root',
+    });
+    expect(folderFromSelectionKey(folders, 'all')).toBeNull();
+    expect(folderFromSelectionKey(folders, 'root:C:\\Missing')).toBeNull();
   });
 
   it('applies size and time presets', () => {

@@ -1,4 +1,4 @@
-import type { FileQuery, FileTypeKey } from '@shared/types';
+import type { FileQuery, FileTypeKey, FolderFacet } from '@shared/types';
 import { formatBytes } from '@shared/format';
 import { fileTypeLabel } from '@shared/fileTypes';
 
@@ -116,6 +116,19 @@ export function folderFromRootPath(drive: string | null, path: string): FolderFi
   const rest = trimmed.slice(prefix.length);
   if (!rest || rest.includes('\\')) return null;
   return { path: `${prefix}${rest}`, scope: 'root' };
+}
+
+export function folderSelectionKey(folder: FolderFilter | null): string {
+  return folder ? `${folder.scope}:${folder.path}` : 'all';
+}
+
+export function folderFromSelectionKey(
+  folders: FolderFacet[],
+  key: string,
+): FolderFilter | null {
+  if (key === 'all') return null;
+  const match = folders.find((folder) => `root:${folder.path}` === key);
+  return match ? { path: match.path, scope: 'root' } : null;
 }
 
 export function folderFromDirectory(path: string): FolderFilter | null {

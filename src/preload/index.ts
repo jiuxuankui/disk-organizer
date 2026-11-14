@@ -24,6 +24,8 @@ const api: DiskOrganizerApi = {
   getOverview: () => ipcRenderer.invoke(IPC.homeOverview),
   queryFiles: (query: FileQuery) => ipcRenderer.invoke(IPC.filesQuery, query),
   listFileIds: (query: FileQuery) => ipcRenderer.invoke(IPC.filesListIds, query),
+  listFileFolders: (query: { drive?: string | null }) =>
+    ipcRenderer.invoke(IPC.filesFacets, query),
   getFile: (id: number) => ipcRenderer.invoke(IPC.filesGet, { id }),
   syncIndex: () => ipcRenderer.invoke(IPC.filesSyncIndex),
   getScanState: () => ipcRenderer.invoke(IPC.scanGetState),
