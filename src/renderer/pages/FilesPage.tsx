@@ -7,6 +7,7 @@ import { formatBytes, formatCount, formatDateTime } from '@shared/format';
 import PageHeader from '../components/PageHeader';
 import FilesToolbar from '../components/FilesToolbar';
 import FileTable from '../components/FileTable';
+import FolderTable from '../components/FolderTable';
 import BulkActionBar from '../components/BulkActionBar';
 import ArchiveModal from '../components/ArchiveModal';
 import { VIDEO_EXTENSIONS } from '@shared/video';
@@ -16,6 +17,7 @@ import {
   DEFAULT_FILES_FILTERS,
   filtersFromPrefill,
   folderFromDirectory,
+  folderFromSubtree,
   hasActiveFilters,
   withoutFilter,
   type FileSort,
@@ -52,7 +54,8 @@ export default function FilesPage(): React.JSX.Element {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<FileSort>(DEFAULT_FILE_SORT);
-  const [folders, setFolders] = useState<FolderFacet[]>([]);
+  const [firstLevelFolders, setFirstLevelFolders] = useState<FolderFacet[]>([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
   const [items, setItems] = useState<FileRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
@@ -81,26 +84,50 @@ export default function FilesPage(): React.JSX.Element {
   }, [searchInput]);
 
   useEffect(() => {
-    if (scanId === null) {
-      setFolders([]);
+    if (filters.view !== 'folders' || scanId === null) {
+      setFirstLevelFolders([]);
+      setFoldersLoading(false);
       return;
     }
     let active = true;
+    setFoldersLoading(true);
     window.api
-      .listFileFolders({ drive: null })
+      .listFileFolders({
+        parentDir: null,
+        drive: filters.drive,
+        search: search || undefined,
+        minSize: filters.minSize,
+        maxSize: filters.maxSize,
+        mtimeFrom: filters.mtimeFrom,
+        mtimeTo: filters.mtimeTo,
+      })
       .then((result) => {
-        if (active) setFolders(result);
+        if (active) setFirstLevelFolders(result);
       })
       .catch((error: unknown) => {
         if (active) pushNotice('error', `读取文件夹列表失败：${describeError(error)}`);
+      })
+      .finally(() => {
+        if (active) setFoldersLoading(false);
       });
     return () => {
       active = false;
     };
-  }, [scanId, dataVersion, pushNotice]);
+  }, [
+    filters.view,
+    filters.drive,
+    filters.minSize,
+    filters.maxSize,
+    filters.mtimeFrom,
+    filters.mtimeTo,
+    search,
+    scanId,
+    dataVersion,
+    pushNotice,
+  ]);
 
   useEffect(() => {
-    if (scanId === null) {
+    if (scanId === null || filters.view === 'folders') {
       requestRef.current += 1;
       setItems([]);
       setTotal(0);
@@ -144,7 +171,7 @@ export default function FilesPage(): React.JSX.Element {
       controller.active = false;
       requestRef.current += 1;
     };
-  }, [baseQuery, scanId, dataVersion, pushNotice]);
+  }, [baseQuery, scanId, dataVersion, pushNotice, filters.view]);
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current || loadingMoreRef.current) return;
@@ -220,6 +247,32 @@ export default function FilesPage(): React.JSX.Element {
     setFilters((prev) => ({ ...prev, folder }));
     setSelection(clearSelection());
   };
+
+  const enterFolder = (folder: FolderFacet): void => {
+    setFilters({
+      ...DEFAULT_FILES_FILTERS,
+      drive: folder.drive,
+      folder: folderFromSubtree(folder.path),
+    });
+    setSearchInput('');
+    setSearch('');
+    setSort(DEFAULT_FILE_SORT);
+    setSelection(clearSelection());
+  };
+
+  const loadChildFolders = useCallback(
+    (parentDir: string): Promise<FolderFacet[]> =>
+      window.api.listFileFolders({
+        parentDir,
+        drive: null,
+        search: search || undefined,
+        minSize: filters.minSize,
+        maxSize: filters.maxSize,
+        mtimeFrom: filters.mtimeFrom,
+        mtimeTo: filters.mtimeTo,
+      }),
+    [search, filters.minSize, filters.maxSize, filters.mtimeFrom, filters.mtimeTo],
+  );
 
   const filtered = hasActiveFilters(filters, search);
   const selectedTotal = selectedCount(selection, total);
@@ -316,44 +369,64 @@ export default function FilesPage(): React.JSX.Element {
           filters={filters}
           searchInput={searchInput}
           drives={scannedDrives}
-          folders={folders}
           onFiltersChange={updateFilters}
           onSearchChange={setSearchInput}
           onClear={handleClear}
           onRemoveTag={handleRemoveTag}
         />
-        <div className="files-summary">
-          <Typography.Text>
-            共 <strong>{formatCount(total)}</strong> 个文件，合计{' '}
-            <strong>{formatBytes(totalBytes)}</strong>
-          </Typography.Text>
-          <Typography.Text type="secondary">
-            {loading
-              ? '正在读取索引…'
-              : items.length < total
-                ? `已加载 ${formatCount(items.length)} 个，滚动继续加载`
-                : '已按当前条件全部加载'}
-          </Typography.Text>
-        </div>
-        <FileTable
-          items={items}
-          total={total}
-          loading={loading}
-          loadingMore={loadingMore}
-          sort={sort}
-          selection={selection}
-          hasActiveFilters={filtered}
-          onSortChange={handleSortChange}
-          onSelectionChange={setSelection}
-          onLoadMore={loadMore}
-          onOpenDetail={openDetail}
-          onOpenExplorer={(path) => void openInExplorer(path)}
-          onFilterFolder={handleFilterFolder}
-          onClearFilters={handleClear}
-        />
+        {filters.view === 'folders' ? (
+          <>
+            <div className="files-summary">
+              <Typography.Text>
+                一级文件夹 <strong>{formatCount(firstLevelFolders.length)}</strong> 个
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                点击箭头展开子文件夹，点击文件夹行进入其中的文件
+              </Typography.Text>
+            </div>
+            <FolderTable
+              folders={firstLevelFolders}
+              loading={foldersLoading}
+              onEnter={enterFolder}
+              loadChildren={loadChildFolders}
+            />
+          </>
+        ) : (
+          <>
+            <div className="files-summary">
+              <Typography.Text>
+                共 <strong>{formatCount(total)}</strong> 个文件，合计{' '}
+                <strong>{formatBytes(totalBytes)}</strong>
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                {loading
+                  ? '正在读取索引…'
+                  : items.length < total
+                    ? `已加载 ${formatCount(items.length)} 个，滚动继续加载`
+                    : '已按当前条件全部加载'}
+              </Typography.Text>
+            </div>
+            <FileTable
+              items={items}
+              total={total}
+              loading={loading}
+              loadingMore={loadingMore}
+              sort={sort}
+              selection={selection}
+              hasActiveFilters={filtered}
+              onSortChange={handleSortChange}
+              onSelectionChange={setSelection}
+              onLoadMore={loadMore}
+              onOpenDetail={openDetail}
+              onOpenExplorer={(path) => void openInExplorer(path)}
+              onFilterFolder={handleFilterFolder}
+              onClearFilters={handleClear}
+            />
+          </>
+        )}
       </div>
 
-      {selectedTotal > 0 ? (
+      {filters.view === 'files' && selectedTotal > 0 ? (
         <BulkActionBar
           count={selectedTotal}
           bytes={selectedSize}

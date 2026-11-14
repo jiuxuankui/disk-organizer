@@ -1,10 +1,16 @@
 import { ipcMain } from 'electron';
 import { IPC } from '@shared/ipcChannels';
-import type { FileQuery, FileRecord, FolderFacet, IndexSyncResult, PagedResult } from '@shared/types';
-import { getFileById, listRootFolders, queryFileIds, queryFiles } from '../db/filesRepo';
+import type {
+  FileQuery,
+  FileRecord,
+  FolderFacet,
+  IndexSyncResult,
+  PagedResult,
+} from '@shared/types';
+import { getFileById, listFolders, queryFileIds, queryFiles } from '../db/filesRepo';
 import { getActiveScanId } from '../db/scansRepo';
 import type { IpcContext } from './context';
-import { driveQuerySchema, fileIdSchema, fileQuerySchema, parseIpc } from './schemas';
+import { fileIdSchema, fileQuerySchema, folderQuerySchema, parseIpc } from './schemas';
 
 function emptyPage(query?: Partial<FileQuery>): PagedResult<FileRecord> {
   return {
@@ -39,10 +45,10 @@ export function registerFilesIpc(ctx: IpcContext): void {
   });
 
   ipcMain.handle(IPC.filesFacets, (_event, raw: unknown): FolderFacet[] => {
-    const { drive } = parseIpc(driveQuerySchema, raw, '文件夹筛选');
+    const query = parseIpc(folderQuerySchema, raw, '文件夹查询');
     const scanId = getActiveScanId(ctx.db);
     if (scanId === null) return [];
-    return listRootFolders(ctx.db, scanId, drive ?? null);
+    return listFolders(ctx.db, scanId, query);
   });
 
   ipcMain.handle(IPC.filesSyncIndex, (): Promise<IndexSyncResult> => ctx.indexSync.sync());

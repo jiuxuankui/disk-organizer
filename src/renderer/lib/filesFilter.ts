@@ -1,4 +1,4 @@
-import type { FileQuery, FileTypeKey, FolderFacet } from '@shared/types';
+import type { FileQuery, FileTypeKey } from '@shared/types';
 import { formatBytes } from '@shared/format';
 import { fileTypeLabel } from '@shared/fileTypes';
 
@@ -6,7 +6,8 @@ const MB = 1024 * 1024;
 const GB = 1024 * MB;
 const DAY = 24 * 60 * 60 * 1000;
 
-export type FolderScope = 'root' | 'dir';
+export type FolderScope = 'root' | 'dir' | 'subtree';
+export type FilesView = 'files' | 'folders';
 
 export interface FolderFilter {
   path: string;
@@ -14,6 +15,7 @@ export interface FolderFilter {
 }
 
 export interface FilesFilters {
+  view: FilesView;
   drive: string | null;
   type: FileTypeKey | null;
   minSize: number | null;
@@ -30,6 +32,7 @@ export interface FileSort {
 }
 
 export const DEFAULT_FILES_FILTERS: FilesFilters = {
+  view: 'files',
   drive: null,
   type: null,
   minSize: null,
@@ -118,34 +121,25 @@ export function folderFromRootPath(drive: string | null, path: string): FolderFi
   return { path: `${prefix}${rest}`, scope: 'root' };
 }
 
-export function folderSelectionKey(folder: FolderFilter | null): string {
-  return folder ? `${folder.scope}:${folder.path}` : 'all';
-}
-
-export function folderFromSelectionKey(folders: FolderFacet[], key: string): FolderFilter | null {
-  if (key === 'all') return null;
-  const match = folders.find((folder) => `root:${folder.path}` === key);
-  return match ? { path: match.path, scope: 'root' } : null;
-}
-
 export function folderFromDirectory(path: string): FolderFilter | null {
   const trimmed = path.trim().replace(/\//g, '\\').replace(/\\+$/, '');
   return trimmed ? { path: trimmed, scope: 'dir' } : null;
 }
 
-export function typeFilterKey(filters: FilesFilters): string {
-  return filters.folder ? folderSelectionKey(filters.folder) : (filters.type ?? 'all');
+export function folderFromSubtree(path: string): FolderFilter | null {
+  const trimmed = path.trim().replace(/\//g, '\\').replace(/\\+$/, '');
+  return trimmed ? { path: trimmed, scope: 'subtree' } : null;
 }
 
-export function applyTypeFilterValue(value: string, folders: FolderFacet[]): Partial<FilesFilters> {
-  if (value === 'all') return { type: null, folder: null };
-  if (value.startsWith('root:')) {
-    const folder = folderFromSelectionKey(folders, value);
-    if (!folder) return { folder: null, type: null };
-    const owner = folders.find((item) => item.path === folder.path);
-    return { folder, type: null, ...(owner ? { drive: owner.drive } : {}) };
-  }
-  return { type: value as FileTypeKey, folder: null };
+export function typeFilterKey(filters: FilesFilters): string {
+  if (filters.view === 'folders') return 'folder';
+  return filters.type ?? 'all';
+}
+
+export function applyTypeFilterValue(value: string): Partial<FilesFilters> {
+  if (value === 'folder') return { view: 'folders', type: null, folder: null };
+  if (value === 'all') return { view: 'files', type: null, folder: null };
+  return { view: 'files', type: value as FileTypeKey, folder: null };
 }
 
 export function filtersFromPrefill(prefill: {
@@ -200,6 +194,7 @@ export function buildFileQuery(options: {
     mtimeTo: filters.mtimeTo,
     rootDir,
     dirPath: folder?.scope === 'dir' ? folder.path : null,
+    dirPrefix: folder?.scope === 'subtree' ? folder.path : null,
     search: search.trim() || undefined,
     sortBy: sort.sortBy,
     sortOrder: sort.sortOrder,

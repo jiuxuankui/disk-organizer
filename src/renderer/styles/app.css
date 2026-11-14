@@ -223,6 +223,49 @@
   text-decoration: underline;
 }
 
+.folder-table .folder-row {
+  cursor: pointer;
+}
+
+.folder-table .folder-hint-row .ant-table-cell {
+  background: transparent;
+}
+
+.folder-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.folder-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: #8c8c8c;
+  cursor: pointer;
+}
+
+.folder-expand:hover,
+.folder-expand:focus-visible {
+  color: #1677ff;
+  background: rgba(22, 119, 255, 0.08);
+}
+
 .file-size {
   font-variant-numeric: tabular-nums;
 }

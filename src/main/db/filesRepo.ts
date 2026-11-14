@@ -1,7 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { FileQuery, FileRecord, FileTypeKey, FolderFacet, PagedResult } from '@shared/types';
+import type {
+  FileQuery,
+  FileRecord,
+  FileTypeKey,
+  FolderFacet,
+  FolderQuery,
+  PagedResult,
+} from '@shared/types';
 import { isFileTypeKey } from '@shared/fileTypes';
-import { normalizePathKey } from '../services/filesystem';
+import { getDriveLetter, normalizePathKey } from '../services/filesystem';
 
 interface FileRow {
   id: number;
@@ -57,18 +64,11 @@ interface WhereClause {
   params: Array<string | number>;
 }
 
-function buildWhere(scanId: number, query: FileQuery): WhereClause {
-  const conditions = ['scan_id = ?'];
-  const params: Array<string | number> = [scanId];
-
-  if (query.drive) {
-    conditions.push('drive = ?');
-    params.push(query.drive);
-  }
-  if (query.type && query.type !== 'all') {
-    conditions.push('type = ?');
-    params.push(query.type);
-  }
+function pushValueFilters(
+  query: Pick<FolderQuery, 'minSize' | 'maxSize' | 'mtimeFrom' | 'mtimeTo' | 'search'>,
+  conditions: string[],
+  params: Array<string | number>,
+): void {
   if (typeof query.minSize === 'number' && Number.isFinite(query.minSize)) {
     conditions.push('size >= ?');
     params.push(Math.max(0, query.minSize));
@@ -85,6 +85,26 @@ function buildWhere(scanId: number, query: FileQuery): WhereClause {
     conditions.push('mtime_ms <= ?');
     params.push(query.mtimeTo);
   }
+  const search = query.search?.trim().toLowerCase() ?? '';
+  if (search) {
+    conditions.push('(instr(name_key, ?) > 0 OR instr(path_key, ?) > 0)');
+    params.push(search, search);
+  }
+}
+
+function buildWhere(scanId: number, query: FileQuery): WhereClause {
+  const conditions = ['scan_id = ?'];
+  const params: Array<string | number> = [scanId];
+
+  if (query.drive) {
+    conditions.push('drive = ?');
+    params.push(query.drive);
+  }
+  if (query.type && query.type !== 'all') {
+    conditions.push('type = ?');
+    params.push(query.type);
+  }
+  pushValueFilters(query, conditions, params);
   if (query.rootDir) {
     conditions.push('root_dir = ? COLLATE NOCASE');
     params.push(query.rootDir);
@@ -93,10 +113,11 @@ function buildWhere(scanId: number, query: FileQuery): WhereClause {
     conditions.push('dir_key = ?');
     params.push(normalizePathKey(query.dirPath));
   }
-  const search = query.search?.trim().toLowerCase() ?? '';
-  if (search) {
-    conditions.push('(instr(name_key, ?) > 0 OR instr(path_key, ?) > 0)');
-    params.push(search, search);
+  if (query.dirPrefix) {
+    const base = normalizePathKey(query.dirPrefix);
+    const prefix = base.endsWith('\\') ? base : `${base}\\`;
+    conditions.push('substr(path_key, 1, ?) = ?');
+    params.push(prefix.length, prefix);
   }
 
   return { sql: conditions.join(' AND '), params };
@@ -158,30 +179,77 @@ export function queryFileIds(db: DatabaseSync, scanId: number, query: FileQuery)
   return rows.map((row) => row.id);
 }
 
-export function listRootFolders(
-  db: DatabaseSync,
-  scanId: number,
-  drive: string | null,
-): FolderFacet[] {
+function firstLevelFolderPath(drive: string, name: string, sample: string): string {
+  const marker = `\\${name.toLowerCase()}\\`;
+  const index = sample.toLowerCase().indexOf(marker);
+  if (index >= 0) return sample.slice(0, index + 1 + name.length);
+  return `${drive}\\${name}`;
+}
+
+export function listFolders(db: DatabaseSync, scanId: number, query: FolderQuery): FolderFacet[] {
+  const conditions = ['scan_id = ?'];
   const params: Array<string | number> = [scanId];
-  let sql = `SELECT drive, root_dir, COALESCE(SUM(size), 0) AS bytes, COUNT(*) AS count
-     FROM files
-     WHERE scan_id = ? AND root_dir <> ''`;
-  if (drive) {
-    sql += ' AND drive = ?';
-    params.push(drive);
+  if (query.drive) {
+    conditions.push('drive = ?');
+    params.push(query.drive);
   }
-  sql += ' GROUP BY drive, root_dir ORDER BY bytes DESC, drive ASC, root_dir ASC';
-  const rows = db.prepare(sql).all(...params) as Array<{
-    drive: string;
-    root_dir: string;
+  pushValueFilters(query, conditions, params);
+
+  if (!query.parentDir) {
+    conditions.push("root_dir <> ''");
+    const rows = db
+      .prepare(
+        `SELECT drive, root_dir AS name, COALESCE(SUM(size), 0) AS bytes, COUNT(*) AS count,
+                MIN(path) AS sample
+         FROM files
+         WHERE ${conditions.join(' AND ')}
+         GROUP BY drive, root_dir
+         ORDER BY bytes DESC, drive ASC, name ASC`,
+      )
+      .all(...params) as Array<{
+      drive: string;
+      name: string;
+      bytes: number;
+      count: number;
+      sample: string;
+    }>;
+    return rows.map((row) => ({
+      drive: row.drive,
+      path: firstLevelFolderPath(row.drive, row.name, row.sample),
+      name: row.name,
+      bytes: row.bytes,
+      count: row.count,
+    }));
+  }
+
+  const parentKey = normalizePathKey(query.parentDir);
+  const baseKey = parentKey.endsWith('\\') ? parentKey.slice(0, -1) : parentKey;
+  const prefix = `${baseKey}\\`;
+  const start = baseKey.length + 2;
+  const rows = db
+    .prepare(
+      `SELECT MIN(name) AS name, COUNT(*) AS count, COALESCE(SUM(size), 0) AS bytes
+       FROM (
+         SELECT substr(path, ?, instr(substr(path, ?), char(92)) - 1) AS name, size
+         FROM files
+         WHERE ${conditions.join(' AND ')}
+           AND substr(path_key, 1, ?) = ?
+           AND instr(substr(path_key, ?), char(92)) > 0
+       )
+       GROUP BY lower(name)
+       ORDER BY bytes DESC, name ASC`,
+    )
+    .all(start, start, ...params, prefix.length, prefix, start) as Array<{
+    name: string;
     bytes: number;
     count: number;
   }>;
+  const drive = getDriveLetter(query.parentDir);
+  const parentPrefix = query.parentDir.replace(/\\+$/, '');
   return rows.map((row) => ({
-    drive: row.drive,
-    path: `${row.drive}\\${row.root_dir}`,
-    name: row.root_dir,
+    drive,
+    path: `${parentPrefix}\\${row.name}`,
+    name: row.name,
     bytes: row.bytes,
     count: row.count,
   }));

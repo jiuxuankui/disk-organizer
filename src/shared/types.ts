@@ -99,6 +99,7 @@ export interface FileQuery {
   mtimeTo?: number | null;
   rootDir?: string | null;
   dirPath?: string | null;
+  dirPrefix?: string | null;
   search?: string;
   sortBy: 'size' | 'mtime' | 'name' | 'type';
   sortOrder: 'asc' | 'desc';
@@ -133,6 +134,16 @@ export interface FolderFacet {
   name: string;
   bytes: number;
   count: number;
+}
+
+export interface FolderQuery {
+  parentDir?: string | null;
+  drive?: string | null;
+  search?: string;
+  minSize?: number | null;
+  maxSize?: number | null;
+  mtimeFrom?: number | null;
+  mtimeTo?: number | null;
 }
 
 export interface DriveOverview {

@@ -3,7 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { FileQuery, FileTypeKey } from '@shared/types';
 import { openDatabase } from '../../src/main/db/connection';
 import { createScan, finalizeScan, setActiveScanId } from '../../src/main/db/scansRepo';
-import { getFileById, listRootFolders, queryFileIds, queryFiles } from '../../src/main/db/filesRepo';
+import { getFileById, listFolders, queryFileIds, queryFiles } from '../../src/main/db/filesRepo';
 import { createTempDbPath } from './helpers';
 
 const cleanups: Array<() => void> = [];
@@ -84,6 +84,7 @@ function baseQuery(patch: Partial<FileQuery> = {}): FileQuery {
     mtimeTo: null,
     rootDir: null,
     dirPath: null,
+    dirPrefix: null,
     search: '',
     sortBy: 'size',
     sortOrder: 'desc',
@@ -131,24 +132,23 @@ describe('files repository', () => {
         total: 3,
         totalBytes: 1200,
       });
+      expect(queryFiles(db, scanId, baseQuery({ minSize: 400, maxSize: 500 }))).toMatchObject({
+        total: 3,
+        totalBytes: 1400,
+      });
+      expect(queryFiles(db, scanId, baseQuery({ mtimeFrom: 25, mtimeTo: 50 }))).toMatchObject({
+        total: 4,
+      });
+      expect(queryFiles(db, scanId, baseQuery({ rootDir: 'movies' }))).toMatchObject({
+        total: 3,
+        totalBytes: 1200,
+      });
+      expect(queryFiles(db, scanId, baseQuery({ dirPath: 'C:\\Movies\\Sub' }))).toMatchObject({
+        total: 1,
+        totalBytes: 400,
+      });
       expect(
-        queryFiles(db, scanId, baseQuery({ minSize: 400, maxSize: 500 })),
-      ).toMatchObject({ total: 3, totalBytes: 1400 });
-      expect(
-        queryFiles(db, scanId, baseQuery({ mtimeFrom: 25, mtimeTo: 50 })),
-      ).toMatchObject({ total: 4 });
-      expect(queryFiles(db, scanId, baseQuery({ rootDir: 'movies' }))).toMatchObject(
-        { total: 3, totalBytes: 1200 },
-      );
-      expect(
-        queryFiles(db, scanId, baseQuery({ dirPath: 'C:\\Movies\\Sub' })),
-      ).toMatchObject({ total: 1, totalBytes: 400 });
-      expect(
-        queryFiles(
-          db,
-          scanId,
-          baseQuery({ drive: 'C:', type: 'video', minSize: 350 }),
-        ),
+        queryFiles(db, scanId, baseQuery({ drive: 'C:', type: 'video', minSize: 350 })),
       ).toMatchObject({ total: 2, totalBytes: 900 });
     } finally {
       db.close();
@@ -159,19 +159,64 @@ describe('files repository', () => {
     const db = tempDb();
     try {
       const scanId = seed(db);
-      const all = listRootFolders(db, scanId, null);
+      const all = listFolders(db, scanId, { parentDir: null, drive: null });
       expect(all).toEqual([
         { drive: 'D:', path: 'D:\\Backup', name: 'Backup', bytes: 2000, count: 1 },
         { drive: 'C:', path: 'C:\\Movies', name: 'Movies', bytes: 1200, count: 3 },
         { drive: 'C:', path: 'C:\\Pics', name: 'Pics', bytes: 600, count: 2 },
         { drive: 'C:', path: 'C:\\Docs', name: 'Docs', bytes: 100, count: 1 },
       ]);
-      expect(listRootFolders(db, scanId, 'C:').map((folder) => folder.name)).toEqual([
-        'Movies',
-        'Pics',
-        'Docs',
+      expect(
+        listFolders(db, scanId, { parentDir: null, drive: 'C:' }).map((folder) => folder.name),
+      ).toEqual(['Movies', 'Pics', 'Docs']);
+      expect(listFolders(db, createScan(db, ['C:'], 4000), { parentDir: null })).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('lists direct subfolders recursively with filtered totals', () => {
+    const db = tempDb();
+    try {
+      const scanId = seed(db);
+      expect(listFolders(db, scanId, { parentDir: 'C:\\Movies' })).toEqual([
+        { drive: 'C:', path: 'C:\\Movies\\Sub', name: 'Sub', bytes: 400, count: 1 },
       ]);
-      expect(listRootFolders(db, createScan(db, ['C:'], 4000), null)).toEqual([]);
+      expect(listFolders(db, scanId, { parentDir: 'c:\\movies\\sub' })).toEqual([]);
+      expect(listFolders(db, scanId, { parentDir: 'C:\\Pics' })).toEqual([]);
+      expect(listFolders(db, scanId, { parentDir: 'C:\\Movies', minSize: 450 })).toEqual([]);
+      expect(listFolders(db, scanId, { parentDir: 'C:\\Movies', minSize: 300 })).toHaveLength(1);
+      expect(listFolders(db, scanId, { parentDir: 'C:\\Movies', search: 's.mkv' })).toHaveLength(1);
+      expect(listFolders(db, scanId, { parentDir: 'C:\\Movies', search: 'a.mkv' })).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('filters files recursively with dirPrefix while dirPath stays exact', () => {
+    const db = tempDb();
+    try {
+      const scanId = seed(db);
+      expect(queryFiles(db, scanId, baseQuery({ dirPath: 'C:\\Movies' }))).toMatchObject({
+        total: 2,
+        totalBytes: 800,
+      });
+      expect(queryFiles(db, scanId, baseQuery({ dirPrefix: 'C:\\Movies' }))).toMatchObject({
+        total: 3,
+        totalBytes: 1200,
+      });
+      expect(queryFiles(db, scanId, baseQuery({ dirPrefix: 'c:\\movies' }))).toMatchObject({
+        total: 3,
+      });
+      expect(
+        queryFiles(db, scanId, baseQuery({ dirPrefix: 'C:\\Movies', type: 'video' })),
+      ).toMatchObject({ total: 3 });
+      expect(
+        queryFiles(db, scanId, baseQuery({ dirPrefix: 'C:\\Movies', search: 'sub' })),
+      ).toMatchObject({ total: 1 });
+      expect(queryFiles(db, scanId, baseQuery({ dirPrefix: 'C:\\Missing' }))).toMatchObject({
+        total: 0,
+      });
     } finally {
       db.close();
     }
@@ -192,9 +237,9 @@ describe('files repository', () => {
         total: 3,
       });
       expect(queryFiles(db, scanId, baseQuery({ search: '%' })).total).toBe(0);
-      expect(
-        queryFiles(db, scanId, baseQuery({ search: 'sub', type: 'video' })),
-      ).toMatchObject({ total: 1 });
+      expect(queryFiles(db, scanId, baseQuery({ search: 'sub', type: 'video' }))).toMatchObject({
+        total: 1,
+      });
     } finally {
       db.close();
     }
@@ -210,28 +255,22 @@ describe('files repository', () => {
           .map((f) => f.name),
       ).toEqual(['a.mkv', 'b.mp4', 'big.iso']);
       expect(
-        queryFiles(db, scanId, baseQuery({ sortBy: 'name', sortOrder: 'desc' })).items[0]
-          .name,
+        queryFiles(db, scanId, baseQuery({ sortBy: 'name', sortOrder: 'desc' })).items[0].name,
       ).toBe('z.jpg');
       expect(
-        queryFiles(db, scanId, baseQuery({ sortBy: 'mtime', sortOrder: 'asc' })).items[0]
-          .name,
+        queryFiles(db, scanId, baseQuery({ sortBy: 'mtime', sortOrder: 'asc' })).items[0].name,
       ).toBe('a.mkv');
       expect(
-        queryFiles(db, scanId, baseQuery({ sortBy: 'mtime', sortOrder: 'desc' })).items[0]
-          .name,
+        queryFiles(db, scanId, baseQuery({ sortBy: 'mtime', sortOrder: 'desc' })).items[0].name,
       ).toBe('big.iso');
       expect(
-        queryFiles(db, scanId, baseQuery({ sortBy: 'type', sortOrder: 'asc' })).items[0]
-          .name,
+        queryFiles(db, scanId, baseQuery({ sortBy: 'type', sortOrder: 'asc' })).items[0].name,
       ).toBe('a.mkv');
       expect(
-        queryFiles(db, scanId, baseQuery({ sortBy: 'type', sortOrder: 'desc' })).items[0]
-          .name,
+        queryFiles(db, scanId, baseQuery({ sortBy: 'type', sortOrder: 'desc' })).items[0].name,
       ).toBe('big.iso');
       expect(
-        queryFiles(db, scanId, baseQuery({ sortBy: 'size', sortOrder: 'asc' })).items[0]
-          .name,
+        queryFiles(db, scanId, baseQuery({ sortBy: 'size', sortOrder: 'asc' })).items[0].name,
       ).toBe('root.txt');
     } finally {
       db.close();

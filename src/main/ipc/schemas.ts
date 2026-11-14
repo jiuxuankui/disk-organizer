@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { organizePrioritySchema, organizeRulesSchema } from '@shared/organize';
+import { localOrganizePath, organizePrioritySchema, organizeRulesSchema } from '@shared/organize';
 import { FILE_TYPES } from '@shared/fileTypes';
 import type { FileTypeKey } from '@shared/types';
 
@@ -65,6 +65,18 @@ export const driveQuerySchema = z.object({
   drive: driveLetterSchema.nullish(),
 });
 
+export const folderQuerySchema = z
+  .object({
+    parentDir: localOrganizePath.nullish(),
+    drive: driveLetterSchema.nullish(),
+    search: z.string().max(512).optional(),
+    minSize: z.number().int().nonnegative().nullish(),
+    maxSize: z.number().int().nonnegative().nullish(),
+    mtimeFrom: z.number().int().nonnegative().nullish(),
+    mtimeTo: z.number().int().nonnegative().nullish(),
+  })
+  .strict();
+
 export const fileQuerySchema = z
   .object({
     drive: driveLetterSchema.nullish(),
@@ -75,6 +87,7 @@ export const fileQuerySchema = z
     mtimeTo: z.number().int().nonnegative().nullish(),
     rootDir: z.string().max(1024).nullish(),
     dirPath: z.string().max(32767).nullish(),
+    dirPrefix: z.string().max(32767).nullish(),
     search: z.string().max(512).optional(),
     sortBy: z.enum(['size', 'mtime', 'name', 'type']).default('size'),
     sortOrder: z.enum(['asc', 'desc']).default('desc'),

@@ -17,6 +17,7 @@ let page: Page;
 const FIXTURE_FILES = [
   ['keep.txt', 'keep this file'],
   ['docs/report.txt', 'quarterly report'],
+  ['docs/2024/q1.txt', 'nested report'],
   ['sub/deep.txt', 'deep file'],
   ['delete-me.bin', 'temporary delete payload'],
 ] as const;
@@ -115,7 +116,7 @@ test('首次启动、扫描并显示总览', async () => {
 
 test('全部文件页支持筛选、搜索和详情抽屉', async () => {
   await navTo('全部文件');
-  await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(7);
+  await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(8);
 
   const nameHeader = page
     .locator('.files-panel .ant-table-thead th')
@@ -140,26 +141,36 @@ test('全部文件页支持筛选、搜索和详情抽屉', async () => {
   await page.locator('.files-search input').fill('cat-');
   await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(3);
   await page.locator('.files-search input').fill('');
-  await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(7);
+  await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(8);
 
   await page.locator('.files-select').nth(1).click();
   await page.locator('.ant-select-item-option[title="图片"]').click();
   await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(3);
   await page.locator('.files-select').nth(1).click();
   await page.locator('.ant-select-item-option[title="全部类型"]').click();
-  await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(7);
+  await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(8);
 
+  const folderRows = page.locator('.folder-table .folder-row');
   await page.locator('.files-select').nth(1).click();
-  await page.locator('.ant-select-dropdown:visible .rc-virtual-list-holder').evaluate((el) => {
-    (el as HTMLElement).scrollTop = (el as HTMLElement).scrollHeight;
-  });
-  await page
-    .locator('.ant-select-dropdown:visible .ant-select-item-option', { hasText: 'photos' })
-    .first()
-    .click();
+  await page.locator('.ant-select-item-option[title="文件夹"]').click();
+  await expect(folderRows).toHaveCount(3);
+  await expect(folderRows.filter({ hasText: 'photos' })).toHaveCount(1);
+  await expect(folderRows.filter({ hasText: 'docs' })).toHaveCount(1);
+
+  await page.getByRole('button', { name: '展开 docs', exact: true }).click();
+  await expect(folderRows.filter({ hasText: '2024' })).toHaveCount(1);
+  await page.getByRole('button', { name: '展开 2024', exact: true }).click();
+  await expect(page.locator('.folder-table').getByText('没有子文件夹')).toBeVisible();
+
+  await folderRows.filter({ hasText: 'photos' }).locator('.folder-name-text').click();
   await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(3);
-  await page.getByRole('button', { name: '清除筛选', exact: true }).click();
-  await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(7);
+  await expect(page.locator('.ant-select-selection-item[title="全部类型"]')).toBeVisible();
+  await expect(page.locator('.files-tags .ant-tag', { hasText: 'photos' })).toBeVisible();
+  await page
+    .locator('.files-tags .ant-tag', { hasText: 'photos' })
+    .locator('.ant-tag-close-icon')
+    .click();
+  await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(8);
 
   await page
     .locator('.files-panel .ant-table-row', { hasText: 'keep.txt' })
@@ -195,7 +206,7 @@ test('删除预览默认取消，确认后进入假回收站并刷新列表', as
   expect(fs.existsSync(deleteMe)).toBe(false);
   const trashed = fs.readdirSync(trashDir);
   expect(trashed.some((name) => name.endsWith('delete-me.bin'))).toBe(true);
-  await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(6);
+  await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(7);
   await expect(page.locator('.files-panel')).not.toContainText('delete-me.bin');
 });
 
@@ -223,7 +234,7 @@ test('关闭并重启后索引与设置仍然存在', async () => {
   await launchApp();
   await expect(page.locator('.sider-status-label')).toHaveText('已扫描');
   await navTo('全部文件');
-  await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(6);
+  await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(7);
   await navTo('设置');
   await expect(page.locator('.settings-excluded-list')).toContainText('D:\\E2E-Excluded');
 });

@@ -13,8 +13,7 @@ import {
   firstLevelFolder,
   folderFromDirectory,
   folderFromRootPath,
-  folderFromSelectionKey,
-  folderSelectionKey,
+  folderFromSubtree,
   hasActiveFilters,
   SIZE_PRESETS,
   sizePresetKey,
@@ -46,6 +45,7 @@ describe('files filter helpers', () => {
       mtimeTo: null,
       rootDir: null,
       dirPath: null,
+      dirPrefix: null,
       search: undefined,
       sortBy: 'size',
       sortOrder: 'desc',
@@ -56,6 +56,7 @@ describe('files filter helpers', () => {
 
   it('maps every filter into the query', () => {
     const filters: FilesFilters = {
+      view: 'files',
       drive: 'D:',
       type: 'video',
       minSize: 10,
@@ -110,6 +111,21 @@ describe('files filter helpers', () => {
     });
     expect(exact.rootDir).toBeNull();
     expect(exact.dirPath).toBe('C:\\Movies\\Sub');
+    expect(exact.dirPrefix).toBeNull();
+
+    const recursive = buildFileQuery({
+      filters: {
+        ...DEFAULT_FILES_FILTERS,
+        folder: { path: 'C:\\Movies\\Sub', scope: 'subtree' },
+      },
+      sort: DEFAULT_FILE_SORT,
+      search: '',
+      page: 1,
+      pageSize: 200,
+    });
+    expect(recursive.rootDir).toBeNull();
+    expect(recursive.dirPath).toBeNull();
+    expect(recursive.dirPrefix).toBe('C:\\Movies\\Sub');
   });
 
   it('parses drilldown prefill into filters', () => {
@@ -132,42 +148,28 @@ describe('files filter helpers', () => {
     expect(firstLevelFolder('C:\\')).toBeNull();
   });
 
-  it('maps folder facets to selectable filter values', () => {
-    const folders = [
-      { drive: 'C:', path: 'C:\\Movies', name: 'Movies', bytes: 1200, count: 3 },
-      { drive: 'D:', path: 'D:\\Backup', name: 'Backup', bytes: 2000, count: 1 },
-    ];
-    expect(folderSelectionKey(null)).toBe('all');
-    expect(folderSelectionKey({ path: 'C:\\Movies', scope: 'root' })).toBe('root:C:\\Movies');
-    expect(folderFromSelectionKey(folders, 'root:C:\\Movies')).toEqual({
-      path: 'C:\\Movies',
-      scope: 'root',
-    });
-    expect(folderFromSelectionKey(folders, 'all')).toBeNull();
-    expect(folderFromSelectionKey(folders, 'root:C:\\Missing')).toBeNull();
-  });
-
-  it('merges the folder filter into the type dropdown value', () => {
-    const folders = [
-      { drive: 'C:', path: 'C:\\Movies', name: 'Movies', bytes: 1200, count: 3 },
-      { drive: 'D:', path: 'D:\\Backup', name: 'Backup', bytes: 2000, count: 1 },
-    ];
+  it('maps the type dropdown to file and folder views', () => {
     expect(typeFilterKey(DEFAULT_FILES_FILTERS)).toBe('all');
     expect(typeFilterKey({ ...DEFAULT_FILES_FILTERS, type: 'video' })).toBe('video');
     expect(
-      typeFilterKey({ ...DEFAULT_FILES_FILTERS, folder: { path: 'C:\\Movies', scope: 'root' } }),
-    ).toBe('root:C:\\Movies');
+      typeFilterKey({ ...DEFAULT_FILES_FILTERS, folder: { path: 'C:\\Movies', scope: 'subtree' } }),
+    ).toBe('all');
+    expect(typeFilterKey({ ...DEFAULT_FILES_FILTERS, view: 'folders' })).toBe('folder');
 
-    expect(applyTypeFilterValue('all', folders)).toEqual({ type: null, folder: null });
-    expect(applyTypeFilterValue('video', folders)).toEqual({ type: 'video', folder: null });
-    expect(applyTypeFilterValue('root:C:\\Movies', folders)).toEqual({
-      folder: { path: 'C:\\Movies', scope: 'root' },
+    expect(applyTypeFilterValue('folder')).toEqual({
+      view: 'folders',
       type: null,
-      drive: 'C:',
-    });
-    expect(applyTypeFilterValue('root:C:\\Missing', folders)).toEqual({
       folder: null,
-      type: null,
+    });
+    expect(applyTypeFilterValue('all')).toEqual({ view: 'files', type: null, folder: null });
+    expect(applyTypeFilterValue('video')).toEqual({
+      view: 'files',
+      type: 'video',
+      folder: null,
+    });
+    expect(folderFromSubtree(' C:/Movies/Sub/ ')).toEqual({
+      path: 'C:\\Movies\\Sub',
+      scope: 'subtree',
     });
   });
 
@@ -196,6 +198,7 @@ describe('files filter helpers', () => {
     expect(describeTimeRange(null, null, NOW)).toBe('');
 
     const filters: FilesFilters = {
+      view: 'files',
       drive: 'C:',
       type: 'video',
       minSize: MB,
@@ -222,6 +225,7 @@ describe('files filter helpers', () => {
 
   it('removes filters independently and clears time presets', () => {
     const filters: FilesFilters = {
+      view: 'files',
       drive: 'C:',
       type: 'video',
       minSize: MB,

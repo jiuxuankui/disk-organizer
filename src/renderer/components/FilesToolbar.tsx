@@ -3,9 +3,7 @@ import { App as AntApp, Button, Input, Modal, Select, Space, Tag, Typography } f
 import type { InputNumberProps } from 'antd';
 import { InputNumber } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
-import type { FolderFacet } from '@shared/types';
 import { FILE_TYPES } from '@shared/fileTypes';
-import { formatCount } from '@shared/format';
 import {
   activeFilterTags,
   applySizePreset,
@@ -33,7 +31,6 @@ export interface FilesToolbarProps {
   filters: FilesFilters;
   searchInput: string;
   drives: DriveFilterOption[];
-  folders: FolderFacet[];
   onFiltersChange: (patch: Partial<FilesFilters>) => void;
   onSearchChange: (value: string) => void;
   onClear: () => void;
@@ -44,7 +41,6 @@ export default function FilesToolbar({
   filters,
   searchInput,
   drives,
-  folders,
   onFiltersChange,
   onSearchChange,
   onClear,
@@ -60,21 +56,6 @@ export default function FilesToolbar({
   const tags = activeFilterTags(filters, searchInput);
   const sizeKey = sizePresetKey(filters.minSize, filters.maxSize);
   const typeKey = typeFilterKey(filters);
-  const visibleFolders = filters.drive
-    ? folders.filter((folder) => folder.drive === filters.drive)
-    : folders;
-  const folderOptions = visibleFolders.map((folder) => ({
-    value: `root:${folder.path}`,
-    label: `${folder.drive} ${folder.name}（${formatCount(folder.count)} 个）`,
-    title: folder.path,
-  }));
-  if (filters.folder && !folderOptions.some((option) => option.value === typeKey)) {
-    folderOptions.unshift({
-      value: typeKey,
-      label: filters.folder.path,
-      title: filters.folder.path,
-    });
-  }
 
   const openCustomSize = (): void => {
     setCustomMin(filters.minSize === null ? null : filters.minSize / MB);
@@ -120,11 +101,11 @@ export default function FilesToolbar({
         <Select
           value={typeKey}
           className="files-select"
-          onChange={(value) => onFiltersChange(applyTypeFilterValue(value, visibleFolders))}
+          onChange={(value) => onFiltersChange(applyTypeFilterValue(value))}
           options={[
             { value: 'all', label: '全部类型' },
+            { value: 'folder', label: '文件夹' },
             ...FILE_TYPES.map((item) => ({ value: item.key, label: item.label })),
-            { label: '文件夹', options: folderOptions },
           ]}
         />
         <Select

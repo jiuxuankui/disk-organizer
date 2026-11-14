@@ -11,6 +11,7 @@ import type {
   FileQuery,
   FileRecord,
   FolderFacet,
+  FolderQuery,
   HomeOverview,
   IndexSyncResult,
   LongTrashStatus,
@@ -62,7 +63,7 @@ export interface DiskOrganizerApi {
   getOverview(): Promise<HomeOverview>;
   queryFiles(query: FileQuery): Promise<PagedResult<FileRecord>>;
   listFileIds(query: FileQuery): Promise<number[]>;
-  listFileFolders(query: { drive?: string | null }): Promise<FolderFacet[]>;
+  listFileFolders(query: FolderQuery): Promise<FolderFacet[]>;
   getFile(id: number): Promise<FileRecord | null>;
   syncIndex(): Promise<IndexSyncResult>;
   getScanState(): Promise<ScanProgress>;
