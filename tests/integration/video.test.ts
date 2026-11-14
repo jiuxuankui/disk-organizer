@@ -171,6 +171,59 @@ describe('real local video compression', () => {
     expect(hash(tiny)).toBe(before);
   }, 30000);
 
+  it('reports live phase, frame rate and growing progress while encoding', async () => {
+    const clip = path.join(root, 'progress.mp4');
+    execFileSync(
+      ffmpeg,
+      [
+        '-v',
+        'error',
+        '-f',
+        'lavfi',
+        '-i',
+        'testsrc2=size=1920x1080:rate=30,noise=alls=3:allf=t',
+        '-t',
+        '6',
+        '-c:v',
+        'libx264',
+        '-preset',
+        'veryfast',
+        '-crf',
+        '10',
+        '-pix_fmt',
+        'yuv420p',
+        '-y',
+        clip,
+      ],
+      { windowsHide: true },
+    );
+    const output = fs.mkdtempSync(path.join(root, 'progress-out-'));
+    const job = service();
+    const started = Date.now();
+    job.start({ paths: [clip], outputDir: output, quality: 'quality' });
+    const phases = new Set<string>();
+    let maxFps = 0;
+    let maxPercent = 0;
+    let etaSeen = false;
+    while (job.isRunning()) {
+      const state = job.getState();
+      phases.add(state.phase);
+      maxFps = Math.max(maxFps, state.fps ?? 0);
+      maxPercent = Math.max(maxPercent, state.percent);
+      etaSeen ||= state.etaSeconds !== null && state.phase === 'encoding';
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    const seconds = (Date.now() - started) / 1000;
+    await job.whenIdle();
+    expect(job.getState().results[0].status).toBe('completed');
+    expect(phases.has('probing')).toBe(true);
+    expect(phases.has('encoding')).toBe(true);
+    expect(maxPercent).toBeGreaterThan(0);
+    expect(maxFps).toBeGreaterThan(5);
+    expect(etaSeen).toBe(true);
+    expect(seconds).toBeLessThan(30);
+  }, 120000);
+
   it('rejects URLs, UNC, device paths, streams, offline drives and unsupported files', () => {
     const job = service();
     for (const value of [

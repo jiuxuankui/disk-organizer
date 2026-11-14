@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  VIDEO_PRESET,
+  applyProgressLine,
+  estimateRemainingSeconds,
   inspectVideo,
   verifyVideoOutput,
   videoEncodeArgs,
-  videoProgress,
   type VideoProbe,
 } from '../../src/main/services/videoCore';
 import { videoStartSchema } from '../../src/main/ipc/schemas';
-import { VIDEO_QUALITIES } from '../../src/shared/video';
+import { VIDEO_QUALITIES, overallVideoPercent, type VideoState } from '../../src/shared/video';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -48,12 +50,63 @@ describe('video encoding safety and quality', () => {
     expect(VIDEO_QUALITIES.quality.crf).toBeLessThan(VIDEO_QUALITIES.smaller.crf);
   });
 
+  it('uses all cores with a faster preset while keeping quality settings intact', () => {
+    const args = videoEncodeArgs('C:\\a.mp4', 'C:\\out\\a.mkv', 'quality', 'yuv420p');
+    expect(args[args.indexOf('-preset') + 1]).toBe(VIDEO_PRESET);
+    expect(VIDEO_PRESET).toBe('medium');
+    const params = args[args.indexOf('-x265-params') + 1];
+    expect(params).toBe('log-level=error');
+    expect(params).not.toMatch(/pools|frame-threads/);
+    expect(args[args.indexOf('-stats_period') + 1]).toBe('0.5');
+    expect(args[args.indexOf('-crf') + 1]).toBe(String(VIDEO_QUALITIES.quality.crf));
+  });
+
   it('parses chunked process lines only when they contain usable progress', () => {
-    expect(videoProgress('out_time_us=5000000', 10)).toBe(50);
-    expect(videoProgress('out_time_us=10000000', 10)).toBe(99);
-    expect(videoProgress('out_time_us=N/A', 10)).toBeNull();
-    expect(videoProgress('speed=2.1x', 10)).toBeNull();
-    expect(videoProgress('out_time_us=100', 0)).toBeNull();
+    const progress = { percent: 0, fps: null as number | null, speed: null as number | null };
+    expect(applyProgressLine('out_time_us=5000000', 10, progress)).toBe(true);
+    expect(progress.percent).toBe(50);
+    expect(applyProgressLine('out_time_us=10000000', 10, progress)).toBe(true);
+    expect(progress.percent).toBe(99);
+    expect(applyProgressLine('out_time_us=2000000', 10, progress)).toBe(true);
+    expect(progress.percent).toBe(99);
+    expect(applyProgressLine('fps=57.1', 10, progress)).toBe(true);
+    expect(progress.fps).toBe(57.1);
+    expect(applyProgressLine('speed=2.15x', 10, progress)).toBe(true);
+    expect(progress.speed).toBe(2.15);
+    expect(applyProgressLine('out_time_us=N/A', 10, progress)).toBe(false);
+    expect(applyProgressLine('speed=N/A', 10, progress)).toBe(false);
+    expect(applyProgressLine('fps=0', 10, progress)).toBe(false);
+    expect(applyProgressLine('progress=end', 10, progress)).toBe(false);
+    expect(applyProgressLine('out_time_us=100', 0, progress)).toBe(false);
+    expect(progress).toMatchObject({ percent: 99, fps: 57.1, speed: 2.15 });
+  });
+
+  it('estimates remaining time only once progress is measurable', () => {
+    expect(estimateRemainingSeconds(0, 5000)).toBeNull();
+    expect(estimateRemainingSeconds(50, 0)).toBeNull();
+    expect(estimateRemainingSeconds(50, 10000)).toBe(10);
+    expect(estimateRemainingSeconds(99, 99000)).toBe(1);
+  });
+
+  it('combines per-file progress into an overall percentage', () => {
+    const base: VideoState = {
+      status: 'running',
+      total: 4,
+      processed: 1,
+      currentPath: 'C:\\a.mp4',
+      percent: 50,
+      phase: 'encoding',
+      fps: null,
+      speed: null,
+      etaSeconds: null,
+      startedAt: 1,
+      fileStartedAt: 2,
+      results: [],
+    };
+    expect(overallVideoPercent(base)).toBe(37);
+    expect(overallVideoPercent({ ...base, percent: 0, processed: 0 })).toBe(0);
+    expect(overallVideoPercent({ ...base, status: 'completed', processed: 4 })).toBe(100);
+    expect(overallVideoPercent({ ...base, total: 0 })).toBe(0);
   });
 
   it('rejects unsupported video rather than silently losing streams or color', () => {

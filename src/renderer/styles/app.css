@@ -3,6 +3,16 @@
   white-space: normal;
 }
 
+.video-progress .ant-progress {
+  margin-bottom: 0;
+}
+
+.video-progress-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .ant-app {
   height: 100%;
 }

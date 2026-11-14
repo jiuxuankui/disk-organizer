@@ -1,22 +1,10 @@
 import { useEffect, useState } from 'react';
-import {
-  Alert,
-  App,
-  Button,
-  Card,
-  Empty,
-  Input,
-  List,
-  Progress,
-  Select,
-  Space,
-  Tag,
-  Typography,
-} from 'antd';
+import { Alert, App, Button, Card, Empty, Input, List, Select, Space, Tag, Typography } from 'antd';
 import { FolderOpenOutlined, PlusOutlined } from '@ant-design/icons';
 import { VIDEO_QUALITIES, type VideoQuality, type VideoState } from '@shared/video';
 import { formatBytes } from '@shared/format';
 import PageHeader from '../components/PageHeader';
+import VideoProgressCard from '../components/VideoProgressCard';
 import { describeError, useAppStore } from '../store/useAppStore';
 
 export default function VideoPage(): React.JSX.Element {
@@ -104,6 +92,7 @@ export default function VideoPage(): React.JSX.Element {
           description="不主动降低分辨率或帧率，音轨、字幕和附件直接保留，输出为 MKV。重编码是有损的，不能保证码率不变或一定缩小；若输出更大则不保留。HDR、杜比视界及旋转视频暂不处理，以避免丢失画质信息。"
         />
         {error ? <Alert type="error" showIcon message={error} /> : null}
+        {running && state ? <VideoProgressCard state={state} running={running} /> : null}
         <Card
           title="1. 选择视频"
           extra={
@@ -176,7 +165,7 @@ export default function VideoPage(): React.JSX.Element {
               />
             </Space>
             <Typography.Text type="secondary">
-              慢速编码换取更好的压缩率，逐个处理以减少硬盘争用。同名输出自动编号，取消只清理本次临时文件。
+              手动分析每个视频，使用全部处理器核心编码；编码时软件保持低占用，其他操作不受影响。同名输出自动编号，取消只清理本次临时文件。
             </Typography.Text>
             <Space>
               <Button
@@ -207,12 +196,6 @@ export default function VideoPage(): React.JSX.Element {
             <Typography.Text>
               已处理 {state.processed} / {state.total} 个视频
             </Typography.Text>
-            {running ? (
-              <>
-                <div className="video-path">{state.currentPath}</div>
-                <Progress percent={state.percent} status="active" />
-              </>
-            ) : null}
             <List
               dataSource={state.results}
               renderItem={(result, index) => (

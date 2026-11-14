@@ -80,7 +80,16 @@ test('空队列禁用开始，选择取消不添加文件，真实压缩保留�
   }, output);
   await page.getByRole('button', { name: '选择文件夹', exact: true }).click();
   await page.getByRole('button', { name: '开始压缩', exact: true }).click();
+  const progressCard = page.locator('.video-progress');
+  await expect(progressCard).toBeVisible({ timeout: 10000 });
+  await expect(progressCard).toContainText('总进度');
+  await expect(progressCard).toContainText('已用时');
+  await expect(progressCard.getByText(/正在(读取视频信息|编码|校验输出|保存)/)).toBeVisible({
+    timeout: 10000,
+  });
+  await expect(page.getByLabel('视频压缩总进度')).toBeVisible();
   await expect(page.locator('.video-results')).toContainText('任务已结束', { timeout: 120000 });
+  await expect(progressCard).toBeHidden();
   await expect(page.locator('.video-results')).toContainText('压缩完成，原文件保留');
   expect(digest(video)).toBe(original);
   expect(fs.readdirSync(output).filter((file) => file.endsWith('.mkv'))).toHaveLength(1);

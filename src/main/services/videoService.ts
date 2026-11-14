@@ -7,12 +7,13 @@ import {
   type VideoState,
 } from '@shared/video';
 import {
+  applyProgressLine,
+  estimateRemainingSeconds,
   inspectVideo,
   probeVideo,
   runVideoTool,
   verifyVideoOutput,
   videoEncodeArgs,
-  videoProgress,
 } from './videoCore';
 
 interface VideoServiceDeps {
@@ -20,15 +21,23 @@ interface VideoServiceDeps {
   fixedDriveLetters: () => Set<string>;
 }
 
+const IDLE_STATE: VideoState = {
+  status: 'idle',
+  total: 0,
+  processed: 0,
+  currentPath: '',
+  percent: 0,
+  phase: 'idle',
+  fps: null,
+  speed: null,
+  etaSeconds: null,
+  startedAt: null,
+  fileStartedAt: null,
+  results: [],
+};
+
 export class VideoService {
-  private state: VideoState = {
-    status: 'idle',
-    total: 0,
-    processed: 0,
-    currentPath: '',
-    percent: 0,
-    results: [],
-  };
+  private state: VideoState = structuredClone(IDLE_STATE);
   private active: Promise<void> | null = null;
   private controller: AbortController | null = null;
 
@@ -82,12 +91,10 @@ export class VideoService {
     if (paths.length === 0) throw new Error('请至少选择一个视频');
     this.controller = new AbortController();
     this.state = {
+      ...structuredClone(IDLE_STATE),
       status: 'running',
       total: paths.length,
-      processed: 0,
-      currentPath: '',
-      percent: 0,
-      results: [],
+      startedAt: Date.now(),
     };
     this.active = this.execute({ ...input, paths, outputDir }, this.controller.signal).finally(
       () => {
@@ -104,6 +111,16 @@ export class VideoService {
       this.controller.abort();
     }
     return this.getState();
+  }
+
+  private beginFile(): void {
+    const now = Date.now();
+    this.state.percent = 0;
+    this.state.phase = 'probing';
+    this.state.fps = null;
+    this.state.speed = null;
+    this.state.etaSeconds = null;
+    this.state.fileStartedAt = now;
   }
 
   private async publish(temp: string, directory: string, name: string): Promise<string> {
@@ -150,15 +167,23 @@ export class VideoService {
       const { duration, pixelFormat } = inspectVideo(metadata);
       workDir = await fs.promises.mkdtemp(path.join(request.outputDir, '.disk-organizer-video-'));
       const temp = path.join(workDir, 'output.mkv');
+      this.state.phase = 'encoding';
+      const progress = { percent: 0, fps: null as number | null, speed: null as number | null };
       await runVideoTool(
         ffmpeg,
         videoEncodeArgs(source, temp, request.quality, pixelFormat),
         signal,
         (line) => {
-          const percent = videoProgress(line, duration);
-          if (percent !== null) this.state.percent = percent;
+          if (!applyProgressLine(line, duration, progress)) return;
+          this.state.percent = progress.percent;
+          this.state.fps = progress.fps;
+          this.state.speed = progress.speed;
+          const elapsed = this.state.fileStartedAt ? Date.now() - this.state.fileStartedAt : 0;
+          this.state.etaSeconds = estimateRemainingSeconds(progress.percent, elapsed);
         },
+        true,
       );
+      this.state.phase = 'verifying';
       const outputMetadata = await probeVideo(ffprobe, temp, signal);
       verifyVideoOutput(metadata, outputMetadata);
       const after = await fs.promises.stat(source);
@@ -171,6 +196,7 @@ export class VideoService {
       }
       const output = await fs.promises.stat(temp);
       signal.throwIfAborted();
+      this.state.phase = 'saving';
       if (output.size >= before.size) {
         result.status = 'skipped';
         result.message = '没有缩小体积，已丢弃本次生成文件并保留原文件';
@@ -203,12 +229,18 @@ export class VideoService {
     for (const source of request.paths) {
       if (signal.aborted) break;
       this.state.currentPath = source;
-      this.state.percent = 0;
+      this.beginFile();
       this.state.results.push(await this.compress(source, request, signal));
       this.state.processed += 1;
     }
     this.state.status = signal.aborted ? 'cancelled' : 'completed';
     this.state.currentPath = '';
     this.state.percent = 0;
+    this.state.phase = 'idle';
+    this.state.fps = null;
+    this.state.speed = null;
+    this.state.etaSeconds = null;
+    this.state.fileStartedAt = null;
+    this.state.startedAt = null;
   }
 }
