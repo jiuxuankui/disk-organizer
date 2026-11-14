@@ -10,8 +10,10 @@ import type { LongTrashService } from '../services/longTrashService';
 import type { BackupService } from '../services/backupService';
 import type { DataService } from '../services/dataService';
 import type { DevOverrides } from '../devOverrides';
+import type { VideoService } from '../services/videoService';
 
 export interface IpcContext {
+  video: VideoService;
   paths: AppPaths;
   db: DatabaseSync;
   settings: SettingsService;

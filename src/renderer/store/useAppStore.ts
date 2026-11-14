@@ -15,7 +15,7 @@ import type {
   ScanProgress,
 } from '@shared/types';
 
-export type PageKey = 'overview' | 'files' | 'duplicates' | 'settings';
+export type PageKey = 'overview' | 'files' | 'duplicates' | 'video' | 'settings';
 
 export interface FilesPrefill {
   drive: string | null;
@@ -31,7 +31,7 @@ export interface Notice {
 
 const PAGE_KEY = 'disk-organizer:last-page';
 const DRIVE_KEY = 'disk-organizer:last-drive';
-const VALID_PAGES: PageKey[] = ['overview', 'files', 'duplicates', 'settings'];
+const VALID_PAGES: PageKey[] = ['overview', 'files', 'duplicates', 'video', 'settings'];
 
 function readPage(): PageKey {
   try {
@@ -162,15 +162,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().initialized) return;
     set({ initialized: true, loading: true });
     try {
-      const [appInfo, settings, drives, scanState, overview, recycleStatus] =
-        await Promise.all([
-          window.api.getAppInfo(),
-          window.api.getSettings(),
-          window.api.listDrives(true),
-          window.api.getScanState(),
-          window.api.getOverview(),
-          window.api.getRecycleStatus().catch(() => null),
-        ]);
+      const [appInfo, settings, drives, scanState, overview, recycleStatus] = await Promise.all([
+        window.api.getAppInfo(),
+        window.api.getSettings(),
+        window.api.listDrives(true),
+        window.api.getScanState(),
+        window.api.getOverview(),
+        window.api.getRecycleStatus().catch(() => null),
+      ]);
       set({
         appInfo,
         settings,
@@ -335,10 +334,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const recycle = get().recycleStatus;
     if (recycle && !recycle.available) {
       set({
-        notice: notice(
-          'warning',
-          recycle.reason ?? 'Windows 回收站当前不可用，删除功能已暂停',
-        ),
+        notice: notice('warning', recycle.reason ?? 'Windows 回收站当前不可用，删除功能已暂停'),
       });
       return;
     }
@@ -473,5 +469,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 export function isScanActive(scan: ScanProgress | null): boolean {
   if (!scan) return false;
-  return scan.status === 'enumerating' || scan.status === 'indexing' || scan.status === 'paused' || scan.status === 'committing';
+  return (
+    scan.status === 'enumerating' ||
+    scan.status === 'indexing' ||
+    scan.status === 'paused' ||
+    scan.status === 'committing'
+  );
 }

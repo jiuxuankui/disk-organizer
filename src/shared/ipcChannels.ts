@@ -1,4 +1,9 @@
 export const IPC = {
+  videoSelect: 'video:select',
+  videoOutputDir: 'video:output-dir',
+  videoState: 'video:state',
+  videoStart: 'video:start',
+  videoCancel: 'video:cancel',
   appInfo: 'app:info',
   appOpenPath: 'app:open-path',
   appShowItemInFolder: 'app:show-item-in-folder',

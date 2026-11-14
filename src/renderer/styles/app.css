@@ -1,3 +1,8 @@
+.video-path {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .ant-app {
   height: 100%;
 }
@@ -1139,4 +1144,3 @@
   font-size: 12px;
   word-break: break-all;
 }
-

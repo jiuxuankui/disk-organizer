@@ -1,16 +1,14 @@
 import { app, BrowserWindow, dialog, session, shell } from 'electron';
 import type { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
+import path from 'node:path';
+import { VideoService } from './services/videoService';
 import type { DeleteEvent, ScanEvent } from '@shared/types';
 import { IPC } from '@shared/ipcChannels';
 import { createMainWindow } from './window';
 import { ensureAppDirs, resolveAppPaths, type AppPaths } from './paths';
 import { registerIpc } from './ipc';
-import {
-  DatabaseCorruptError,
-  openDatabase,
-  closeDatabaseQuietly,
-} from './db/connection';
+import { DatabaseCorruptError, openDatabase, closeDatabaseQuietly } from './db/connection';
 import { SchemaTooNewError } from './db/migrate';
 import { SettingsService } from './services/settingsService';
 import { DrivesService } from './services/drivesService';
@@ -106,6 +104,7 @@ if (!app.requestSingleInstanceLock()) {
   let scan: ScanService | null = null;
   let duplicates: DuplicatesService | null = null;
   let deleteService: DeleteService | null = null;
+  let video: VideoService | null = null;
   let quittingAfterScan = false;
   let closeConfirmed = false;
 
@@ -200,9 +199,7 @@ if (!app.requestSingleInstanceLock()) {
     const longTrash = new LongTrashService({ rootDir: paths.rootDir });
     const deleteSvc = new DeleteService({
       db,
-      getRecyclePolicy: devOverrides.fakeTrashDir
-        ? () => fakePolicy
-        : readRecycleBinPolicy,
+      getRecyclePolicy: devOverrides.fakeTrashDir ? () => fakePolicy : readRecycleBinPolicy,
       trashItem: devOverrides.fakeTrashDir
         ? createFakeTrashItem(devOverrides.fakeTrashDir)
         : (filePath) => shell.trashItem(filePath),
@@ -212,7 +209,16 @@ if (!app.requestSingleInstanceLock()) {
     deleteService = deleteSvc;
     const dataService = new DataService({ db, paths, backup: backupService });
 
+    const videoService = new VideoService({
+      toolsDir: app.isPackaged
+        ? path.join(process.resourcesPath, 'ffmpeg')
+        : path.join(app.getAppPath(), 'build', 'ffmpeg'),
+      fixedDriveLetters: () => drives.onlineLetters(),
+    });
+    video = videoService;
+
     registerIpc({
+      video: videoService,
       paths,
       db,
       settings,
@@ -230,14 +236,18 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow = createMainWindow();
 
     mainWindow.on('close', (event) => {
-      if (closeConfirmed || !scanService.isScanning()) return;
+      if (closeConfirmed || (!scanService.isScanning() && !videoService.isRunning())) return;
       const window = mainWindow;
       if (!window) return;
       const choice = dialog.showMessageBoxSync(window, {
         type: 'warning',
-        title: '扫描尚未完成',
-        message: '扫描尚未完成，关闭将丢失本次进度。',
-        detail: '本次未完成的扫描结果不会保存，已有旧数据保持不变。',
+        title: videoService.isRunning() ? '视频压缩尚未完成' : '扫描尚未完成',
+        message: videoService.isRunning()
+          ? '关闭将停止当前视频压缩。'
+          : '扫描尚未完成，关闭将丢失本次进度。',
+        detail: videoService.isRunning()
+          ? '原文件和已完成的输出保留，仅清理本次未完成的临时文件。'
+          : '本次未完成的扫描结果不会保存，已有旧数据保持不变。',
         buttons: ['取消', '关闭'],
         defaultId: 0,
         cancelId: 0,
@@ -250,7 +260,8 @@ if (!app.requestSingleInstanceLock()) {
       event.preventDefault();
       closeConfirmed = true;
       scanService.cancel();
-      void scanService.whenIdle().finally(() => {
+      videoService.cancel();
+      void Promise.all([scanService.whenIdle(), videoService.whenIdle()]).finally(() => {
         mainWindow?.close();
       });
     });
@@ -275,7 +286,10 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('before-quit', (event) => {
     if (
-      (scan?.isBusy() || duplicates?.isRunning() || deleteService?.isRunning()) &&
+      (scan?.isBusy() ||
+        duplicates?.isRunning() ||
+        deleteService?.isRunning() ||
+        video?.isRunning()) &&
       !quittingAfterScan
     ) {
       event.preventDefault();
@@ -283,7 +297,13 @@ if (!app.requestSingleInstanceLock()) {
       scan?.cancel();
       duplicates?.cancel();
       deleteService?.cancel();
-      void Promise.all([scan?.whenIdle(), duplicates?.whenIdle(), deleteService?.whenIdle()])
+      video?.cancel();
+      void Promise.all([
+        scan?.whenIdle(),
+        duplicates?.whenIdle(),
+        deleteService?.whenIdle(),
+        video?.whenIdle(),
+      ])
         .catch(() => undefined)
         .finally(() => app.quit());
       return;

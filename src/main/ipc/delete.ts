@@ -5,6 +5,7 @@ import type { IpcContext } from './context';
 import { deleteFilesSchema, parseIpc, type DeleteFilesPayload } from './schemas';
 
 function ensureIdle(ctx: IpcContext): void {
+  if (ctx.video.isRunning()) throw new Error('视频压缩进行中，完成或取消后再删除文件');
   if (ctx.scan.isBusy()) throw new Error('扫描进行中，完成后再删除文件');
   if (ctx.duplicates.isRunning()) throw new Error('重复文件查找进行中，完成或取消后再删除文件');
   if (ctx.deleteService.isRunning()) throw new Error('删除正在进行，请等待完成或先停止');

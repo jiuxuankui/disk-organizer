@@ -13,7 +13,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "build": "npm run typecheck && electron-vite build",
-    "build:win": "npm run build && electron-builder --win nsis",
+    "build:win": "npm run prepare:video && npm run build && electron-builder --win nsis",
+    "prepare:video": "node scripts/prepare-video-tools.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test",
@@ -31,6 +32,18 @@
     "files": [
       "out/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/ffmpeg",
+        "to": "ffmpeg",
+        "filter": [
+          "*.exe",
+          "LICENSE",
+          "README.txt",
+          "provenance.json"
+        ]
+      }
     ],
     "asar": true,
     "electronDist": "node_modules/electron/dist",

@@ -9,8 +9,10 @@ import { registerDeleteIpc } from './delete';
 import { registerLongTrashIpc } from './longTrash';
 import { registerDataIpc } from './data';
 import type { IpcContext } from './context';
+import { registerVideoIpc } from './video';
 
 export function registerIpc(ctx: IpcContext): void {
+  registerVideoIpc(ctx);
   registerAppIpc(ctx);
   registerSettingsIpc(ctx);
   registerDrivesIpc(ctx);

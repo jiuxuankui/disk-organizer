@@ -21,7 +21,31 @@ export default defineConfig({
         '@renderer': resolve(__dirname, 'src/renderer'),
       },
     },
-    plugins: [react()],
+    plugins: [
+      react(),
+      {
+        name: 'external-react-preamble',
+        apply: 'serve',
+        configureServer(server) {
+          server.middlewares.use('/@react-preamble', (_request, response) => {
+            response.setHeader('Content-Type', 'text/javascript');
+            response.end(react.preambleCode.replace('__BASE__', '/'));
+          });
+        },
+        transformIndexHtml: {
+          order: 'post',
+          handler(html) {
+            return html.replace(
+              /<script type="module">([\s\S]*?)<\/script>/g,
+              (tag, body: string) =>
+                body.includes('injectIntoGlobalHook')
+                  ? '<script type="module" src="/@react-preamble"></script>'
+                  : tag,
+            );
+          },
+        },
+      },
+    ],
     build: {
       rollupOptions: {
         input: resolve(__dirname, 'src/renderer/index.html'),

@@ -18,6 +18,20 @@ export const scanStartSchema = z
   })
   .strict();
 
+const videoPathSchema = z
+  .string()
+  .min(1)
+  .max(32767)
+  .refine((value) => !value.includes('\0'), '路径包含无效字符');
+
+export const videoStartSchema = z
+  .object({
+    paths: z.array(videoPathSchema).min(1, '请至少选择一个视频').max(200),
+    outputDir: videoPathSchema,
+    quality: z.enum(['quality', 'balanced', 'smaller']),
+  })
+  .strict();
+
 export const pathSchema = z.object({
   path: z.string().min(1, '路径不能为空').max(32767),
 });
@@ -58,7 +72,12 @@ export const duplicatesStartSchema = z
 
 export const duplicateQuerySchema = z
   .object({
-    minSize: z.number().int().nonnegative().max(16 * 1024 ** 4).default(0),
+    minSize: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(16 * 1024 ** 4)
+      .default(0),
     drive: driveLetterSchema.nullish(),
     type: z.enum([...FILE_TYPE_KEYS, 'all']).nullish(),
     sortBy: z.enum(['reclaimable', 'size', 'count']).default('reclaimable'),
@@ -94,7 +113,12 @@ export const settingsUpdateSchema = z
     scanDrives: z.array(driveLetterSchema).max(26).optional(),
     excludedPaths: z.array(z.string().trim().min(1).max(1024)).max(200).optional(),
     skipHiddenSystem: z.boolean().optional(),
-    minDuplicateSize: z.number().int().nonnegative().max(16 * 1024 ** 4).optional(),
+    minDuplicateSize: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(16 * 1024 ** 4)
+      .optional(),
     autoBackup: z.boolean().optional(),
   })
   .strict()
