@@ -13,7 +13,10 @@ import { registerVideoIpc } from './video';
 
 import { registerArchiveIpc } from './archive';
 
+import { registerOrganizeIpc } from './organize';
+
 export function registerIpc(ctx: IpcContext): void {
+  registerOrganizeIpc(ctx);
   registerArchiveIpc(ctx);
   registerVideoIpc(ctx);
   registerAppIpc(ctx);

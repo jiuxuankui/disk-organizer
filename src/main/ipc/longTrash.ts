@@ -11,6 +11,7 @@ export function registerLongTrashIpc(ctx: IpcContext): void {
     IPC.longTrashRestore,
     async (_event, raw: unknown): Promise<{ ok: boolean; error: string | null }> => {
       const payload = parseIpc(longTrashIdSchema, raw, '还原文件');
+      if (ctx.organize.isRunning()) throw new Error('文件整理进行中，请完成或停止后再还原文件');
       return ctx.longTrash.restore(payload.id);
     },
   );

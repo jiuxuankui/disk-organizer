@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { organizeRulesSchema } from '@shared/organize';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_EXCLUDED_PATHS, DEFAULT_MIN_DUPLICATE_SIZE } from '@shared/constants';
@@ -16,6 +17,7 @@ export const settingsSchema = z.object({
     .min(0)
     .max(16 * 1024 ** 4),
   autoBackup: z.boolean(),
+  organizeRules: organizeRulesSchema.default([]),
 });
 
 export type AppSettings = z.infer<typeof settingsSchema>;
@@ -26,6 +28,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   skipHiddenSystem: true,
   minDuplicateSize: DEFAULT_MIN_DUPLICATE_SIZE,
   autoBackup: true,
+  organizeRules: [],
 };
 
 export function normalizeSettings(input: AppSettings): AppSettings {
@@ -53,6 +56,7 @@ export function normalizeSettings(input: AppSettings): AppSettings {
     skipHiddenSystem: input.skipHiddenSystem,
     minDuplicateSize: input.minDuplicateSize,
     autoBackup: input.autoBackup,
+    organizeRules: input.organizeRules,
   };
 }
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { organizeRulesSchema } from '@shared/organize';
 import { FILE_TYPES } from '@shared/fileTypes';
 import type { FileTypeKey } from '@shared/types';
 
@@ -144,6 +145,7 @@ export const settingsUpdateSchema = z
       .max(16 * 1024 ** 4)
       .optional(),
     autoBackup: z.boolean().optional(),
+    organizeRules: organizeRulesSchema.optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, '没有需要保存的设置');

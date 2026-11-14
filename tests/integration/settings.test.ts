@@ -85,6 +85,7 @@ describe('settings persistence', () => {
       skipHiddenSystem: true,
       minDuplicateSize: 0,
       autoBackup: false,
+      organizeRules: [],
     });
   });
 

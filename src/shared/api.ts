@@ -22,6 +22,12 @@ import type {
 } from './types';
 import type { VideoRequest, VideoState } from './video';
 import type { ArchiveRequest, ArchiveState } from './archive';
+import type {
+  OrganizePreview,
+  OrganizePreviewRequest,
+  OrganizeStartRequest,
+  OrganizeState,
+} from './organize';
 
 export interface StartScanInput {
   drives: string[];
@@ -35,6 +41,11 @@ export interface OpenPathResult {
 }
 
 export interface DiskOrganizerApi {
+  selectOrganizeDirectory(): Promise<string | null>;
+  previewOrganize(input: OrganizePreviewRequest): Promise<OrganizePreview>;
+  startOrganize(input: OrganizeStartRequest): Promise<OrganizeState>;
+  getOrganizeState(): Promise<OrganizeState>;
+  cancelOrganize(): Promise<OrganizeState>;
   selectArchiveOutputDir(): Promise<string | null>;
   startArchive(input: ArchiveRequest): Promise<ArchiveState>;
   getArchiveState(): Promise<ArchiveState>;

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { VideoService } from './services/videoService';
 import { ArchiveService } from './services/archiveService';
+import { OrganizeService } from './services/organizeService';
 import type { DeleteEvent, ScanEvent } from '@shared/types';
 import { IPC } from '@shared/ipcChannels';
 import { createMainWindow } from './window';
@@ -107,6 +108,7 @@ if (!app.requestSingleInstanceLock()) {
   let deleteService: DeleteService | null = null;
   let video: VideoService | null = null;
   let archive: ArchiveService | null = null;
+  let organize: OrganizeService | null = null;
   let quittingAfterScan = false;
   let closeConfirmed = false;
 
@@ -222,7 +224,20 @@ if (!app.requestSingleInstanceLock()) {
     const archiveService = new ArchiveService(() => drives.onlineLetters());
     archive = archiveService;
 
+    const organizeService = new OrganizeService({
+      db,
+      fixedDrives: () => drives.onlineLetters(),
+      protectedPaths: [paths.rootDir, app.getAppPath(), process.resourcesPath],
+      getRecyclePolicy: devOverrides.fakeTrashDir ? () => fakePolicy : readRecycleBinPolicy,
+      trashItem: devOverrides.fakeTrashDir
+        ? createFakeTrashItem(devOverrides.fakeTrashDir)
+        : (filePath) => shell.trashItem(filePath),
+      longTrash,
+    });
+    organize = organizeService;
+
     registerIpc({
+      organize: organizeService,
       archive: archiveService,
       video: videoService,
       paths,
@@ -243,16 +258,23 @@ if (!app.requestSingleInstanceLock()) {
 
     mainWindow.on('close', (event) => {
       const compressing = videoService.isRunning() || archiveService.isRunning();
-      if (closeConfirmed || (!scanService.isScanning() && !compressing)) return;
+      const organizing = organizeService.isRunning();
+      if (closeConfirmed || (!scanService.isScanning() && !compressing && !organizing)) return;
       const window = mainWindow;
       if (!window) return;
       const choice = dialog.showMessageBoxSync(window, {
         type: 'warning',
-        title: compressing ? '压缩任务尚未完成' : '扫描尚未完成',
-        message: compressing ? '关闭将停止当前压缩任务。' : '扫描尚未完成，关闭将丢失本次进度。',
-        detail: compressing
-          ? '原文件和已完成的输出保留，仅清理本次未完成的临时文件。'
-          : '本次未完成的扫描结果不会保存，已有旧数据保持不变。',
+        title: organizing ? '整理任务尚未完成' : compressing ? '压缩任务尚未完成' : '扫描尚未完成',
+        message: organizing
+          ? '关闭将安全停止当前整理任务。'
+          : compressing
+            ? '关闭将停止当前压缩任务。'
+            : '扫描尚未完成，关闭将丢失本次进度。',
+        detail: organizing
+          ? '已完成的移动保留；等待正在进行的文件操作安全结束，不永久删除原件。'
+          : compressing
+            ? '原文件和已完成的输出保留，仅清理本次未完成的临时文件。'
+            : '本次未完成的扫描结果不会保存，已有旧数据保持不变。',
         buttons: ['取消', '关闭'],
         defaultId: 0,
         cancelId: 0,
@@ -267,10 +289,12 @@ if (!app.requestSingleInstanceLock()) {
       scanService.cancel();
       videoService.cancel();
       archiveService.cancel();
+      organizeService.cancel();
       void Promise.all([
         scanService.whenIdle(),
         videoService.whenIdle(),
         archiveService.whenIdle(),
+        organizeService.whenIdle(),
       ]).finally(() => {
         mainWindow?.close();
       });
@@ -300,7 +324,8 @@ if (!app.requestSingleInstanceLock()) {
         duplicates?.isRunning() ||
         deleteService?.isRunning() ||
         video?.isRunning() ||
-        archive?.isRunning()) &&
+        archive?.isRunning() ||
+        organize?.isRunning()) &&
       !quittingAfterScan
     ) {
       event.preventDefault();
@@ -310,12 +335,14 @@ if (!app.requestSingleInstanceLock()) {
       deleteService?.cancel();
       video?.cancel();
       archive?.cancel();
+      organize?.cancel();
       void Promise.all([
         scan?.whenIdle(),
         duplicates?.whenIdle(),
         deleteService?.whenIdle(),
         video?.whenIdle(),
         archive?.whenIdle(),
+        organize?.whenIdle(),
       ])
         .catch(() => undefined)
         .finally(() => app.quit());

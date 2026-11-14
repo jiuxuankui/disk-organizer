@@ -15,6 +15,8 @@ import FilesPage from '../pages/FilesPage';
 import DuplicatesPage from '../pages/DuplicatesPage';
 import SettingsPage from '../pages/SettingsPage';
 import VideoPage from '../pages/VideoPage';
+import OrganizePage from '../pages/OrganizePage';
+import { FolderOpenOutlined } from '@ant-design/icons';
 import { VideoCameraOutlined } from '@ant-design/icons';
 import ScanSetupModal from './ScanSetupModal';
 import ScanProgressPanel from './ScanProgressPanel';
@@ -26,6 +28,7 @@ const NAV_ITEMS = [
   { key: 'files', icon: <FileTextOutlined />, label: COPY.navFiles },
   { key: 'duplicates', icon: <CopyOutlined />, label: COPY.navDuplicates },
   { key: 'video', icon: <VideoCameraOutlined />, label: '视频压缩' },
+  { key: 'organize', icon: <FolderOpenOutlined />, label: '归类整理' },
   { key: 'settings', icon: <SettingOutlined />, label: COPY.navSettings },
 ];
 
@@ -92,6 +95,8 @@ function PageContent({ page }: { page: PageKey }): React.JSX.Element {
       return <SettingsPage />;
     case 'video':
       return <VideoPage />;
+    case 'organize':
+      return <OrganizePage />;
     default:
       return <OverviewPage />;
   }

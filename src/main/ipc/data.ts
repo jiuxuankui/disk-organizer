@@ -7,6 +7,7 @@ import type { IpcContext } from './context';
 import { parseIpc, pathSchema } from './schemas';
 
 function ensureIdle(ctx: IpcContext, label: string): void {
+  if (ctx.organize.isRunning()) throw new Error(`文件整理进行中，请完成或停止后再${label}`);
   if (ctx.archive.isRunning()) throw new Error(`压缩打包进行中，请完成或取消后再${label}`);
   if (ctx.video.isRunning()) throw new Error(`视频压缩进行中，完成或取消后再${label}`);
   if (ctx.scan.isBusy()) throw new Error(`扫描进行中，完成后再${label}`);
@@ -18,6 +19,7 @@ export function registerDataIpc(ctx: IpcContext): void {
   ipcMain.handle(IPC.backupList, (): BackupFileInfo[] => ctx.backup.list());
 
   ipcMain.handle(IPC.backupCreate, async (): Promise<BackupFileInfo> => {
+    if (ctx.organize.isRunning()) throw new Error('文件整理进行中，请完成或停止后再备份');
     if (ctx.scan.isBusy()) throw new Error('扫描进行中，完成后再备份');
     return ctx.backup.create();
   });

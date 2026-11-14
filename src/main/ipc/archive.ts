@@ -17,6 +17,7 @@ export function registerArchiveIpc(ctx: IpcContext): void {
   ipcMain.handle(IPC.archiveCancel, () => ctx.archive.cancel());
   ipcMain.handle(IPC.archiveStart, (_event, raw: unknown) => {
     const input = parseIpc(archiveStartSchema, raw, '压缩打包');
+    if (ctx.organize.isRunning()) throw new Error('文件整理进行中，请完成或停止后再打包');
     if (
       ctx.scan.isBusy() ||
       ctx.duplicates.isRunning() ||

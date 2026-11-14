@@ -1,4 +1,9 @@
 export const IPC = {
+  organizeDirectory: 'organize:directory',
+  organizePreview: 'organize:preview',
+  organizeStart: 'organize:start',
+  organizeState: 'organize:state',
+  organizeCancel: 'organize:cancel',
   archiveOutputDir: 'archive:output-dir',
   archiveStart: 'archive:start',
   archiveState: 'archive:state',

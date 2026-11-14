@@ -27,6 +27,7 @@ export interface WindowsFileAttributes {
 }
 
 interface Win32Api {
+  moveFileNoReplace(source: string, target: string): void;
   getDriveType(root: string): number;
   getLogicalDrives(): number;
   getVolumeInformation(root: string): {
@@ -37,7 +38,11 @@ interface Win32Api {
   getVolumeNameForMountPoint(root: string): string | null;
   getDiskSpace(root: string): { totalBytes: number; freeBytes: number } | null;
   getFileAttributes(path: string): number;
-  getRegistryDword(hive: 'currentUser' | 'localMachine', subKey: string, value: string): number | null;
+  getRegistryDword(
+    hive: 'currentUser' | 'localMachine',
+    subKey: string,
+    value: string,
+  ): number | null;
 }
 
 let cachedApi: Win32Api | null = null;
@@ -82,7 +87,21 @@ function loadWin32(): Win32Api {
     return buffer.toString('utf16le');
   }
 
+  const MoveFileExW = kernel32.func(
+    'int __stdcall MoveFileExW(const char16_t *source, const char16_t *target, uint32_t flags)',
+  );
+  const GetLastError = kernel32.func('uint32_t __stdcall GetLastError()');
+
   const api: Win32Api = {
+    moveFileNoReplace(source, target) {
+      if (MoveFileExW(toExtendedPath(source), toExtendedPath(target), 0)) return;
+      const code = GetLastError();
+      throw new Error(
+        code === 80 || code === 183
+          ? '目标已存在，未覆盖任何文件'
+          : `移动失败（Windows ${code}），未覆盖目标`,
+      );
+    },
     getDriveType(root) {
       return GetDriveTypeW(root);
     },
@@ -190,6 +209,11 @@ export function listFixedDrives(): DriveInfo[] {
     if (info) drives.push(info);
   }
   return drives;
+}
+
+export function moveFileNoReplace(source: string, target: string): void {
+  if (!isWindows()) throw new Error('文件移动仅支持 Windows');
+  loadWin32().moveFileNoReplace(source, target);
 }
 
 export function readFileAttributes(path: string): WindowsFileAttributes | null {

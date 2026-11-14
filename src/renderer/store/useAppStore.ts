@@ -15,7 +15,7 @@ import type {
   ScanProgress,
 } from '@shared/types';
 
-export type PageKey = 'overview' | 'files' | 'duplicates' | 'video' | 'settings';
+export type PageKey = 'overview' | 'files' | 'duplicates' | 'video' | 'organize' | 'settings';
 
 export interface FilesPrefill {
   drive: string | null;
@@ -31,7 +31,7 @@ export interface Notice {
 
 const PAGE_KEY = 'disk-organizer:last-page';
 const DRIVE_KEY = 'disk-organizer:last-drive';
-const VALID_PAGES: PageKey[] = ['overview', 'files', 'duplicates', 'video', 'settings'];
+const VALID_PAGES: PageKey[] = ['overview', 'files', 'duplicates', 'video', 'organize', 'settings'];
 
 function readPage(): PageKey {
   try {

@@ -150,6 +150,7 @@ export interface HomeOverview {
 }
 
 export interface AppSettings {
+  organizeRules: import('./organize').OrganizeRule[];
   scanDrives: string[];
   excludedPaths: string[];
   skipHiddenSystem: boolean;

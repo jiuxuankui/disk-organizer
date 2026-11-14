@@ -1,0 +1,256 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { setImmediate } from 'node:timers/promises';
+import type { DatabaseSync } from 'node:sqlite';
+import type {
+  OrganizeItem,
+  OrganizePreview,
+  OrganizePreviewRequest,
+  OrganizeStartRequest,
+  OrganizeState,
+} from '@shared/organize';
+import { getActiveScanId } from '../db/scansRepo';
+import { getFileById } from '../db/filesRepo';
+import { updateOrganizedFile } from '../db/organizeRepo';
+import {
+  assertUnchanged,
+  chooseOrganizeRule,
+  copyVerifiedForMove,
+  organizeLocalPath,
+} from './organizeCore';
+import { getDriveLetter, normalizePathKey } from './filesystem';
+import { moveFileNoReplace } from './windowsService';
+import { evaluateRecycleDecision, type RecycleBinPolicy } from './recycleBinService';
+import type { LongTrashPort } from './deleteService';
+
+interface PlannedItem {
+  item: OrganizeItem;
+  before: fs.Stats;
+  parent: fs.Stats;
+}
+interface OrganizeDeps {
+  db: DatabaseSync;
+  fixedDrives(): Set<string>;
+  protectedPaths: string[];
+  getRecyclePolicy(drive: string): RecycleBinPolicy;
+  trashItem(file: string): Promise<void>;
+  longTrash: LongTrashPort;
+}
+
+export class OrganizeService {
+  private preview: { token: string; scanId: number; entries: PlannedItem[] } | null = null;
+  private active: Promise<void> | null = null;
+  private controller: AbortController | null = null;
+  private state: OrganizeState = {
+    status: 'idle',
+    total: 0,
+    processed: 0,
+    currentPath: '',
+    results: [],
+  };
+  constructor(private readonly deps: OrganizeDeps) {}
+  getState(): OrganizeState {
+    return structuredClone(this.state);
+  }
+  isRunning(): boolean {
+    return this.active !== null;
+  }
+  whenIdle(): Promise<void> {
+    return this.active ?? Promise.resolve();
+  }
+  cancel(): OrganizeState {
+    if (this.controller) {
+      this.state.status = 'cancelling';
+      this.controller.abort();
+    }
+    return this.getState();
+  }
+  private local(value: string): string {
+    return organizeLocalPath(value, this.deps.fixedDrives(), this.deps.protectedPaths);
+  }
+  plan(input: OrganizePreviewRequest): OrganizePreview {
+    if (this.isRunning()) throw new Error('整理任务进行中');
+    this.preview = null;
+    const scanId = getActiveScanId(this.deps.db);
+    if (scanId === null) throw new Error('请先扫描文件');
+    const sourceDir = this.local(input.sourceDir);
+    if (!fs.statSync(sourceDir).isDirectory()) throw new Error('来源必须是文件夹');
+    const rules = input.rules
+      .filter((rule) => rule.enabled)
+      .map((rule) => {
+        const targetDir = this.local(rule.targetDir);
+        if (!fs.statSync(targetDir).isDirectory()) throw new Error('目标必须是文件夹');
+        return { ...rule, targetDir };
+      });
+    if (rules.length === 0) throw new Error('请添加并启用至少一条规则');
+    const prefix = normalizePathKey(sourceDir).replace(/\\+$/, '') + '\\';
+    const ids = this.deps.db
+      .prepare(
+        'SELECT id FROM files WHERE scan_id = ? AND substr(path_key, 1, ?) = ? ORDER BY path_key LIMIT 10001',
+      )
+      .all(scanId, prefix.length, prefix) as Array<{ id: number }>;
+    if (ids.length > 10000) throw new Error('来源超过 10000 个索引文件，请选择更小的文件夹');
+    const entries: PlannedItem[] = [];
+    const items: OrganizeItem[] = [];
+    const reserved = new Set<string>();
+    for (const { id } of ids) {
+      const file = getFileById(this.deps.db, scanId, id)!;
+      const rule = chooseOrganizeRule(file, rules);
+      if (!rule) continue;
+      let target = path.join(rule.targetDir, file.name);
+      const item: OrganizeItem = {
+        id,
+        source: file.path,
+        target,
+        size: file.size,
+        rule: rule.name,
+        crossDrive: false,
+        allowed: false,
+        message: '',
+      };
+      items.push(item);
+      try {
+        this.local(file.path);
+        const before = fs.lstatSync(file.path);
+        if (
+          !before.isFile() ||
+          before.size !== file.size ||
+          Math.trunc(before.mtimeMs) !== Math.trunc(file.mtimeMs)
+        )
+          throw new Error('文件已变化，请重新扫描');
+        if (normalizePathKey(target) === normalizePathKey(file.path))
+          throw new Error('已在目标文件夹，无需移动');
+        const { name, ext } = path.parse(file.name);
+        let suffix = 0;
+        while (fs.existsSync(target) || reserved.has(normalizePathKey(target))) {
+          suffix += 1;
+          if (suffix > 10000) throw new Error('目标同名文件过多');
+          target = path.join(rule.targetDir, `${name} (${suffix})${ext}`);
+        }
+        reserved.add(normalizePathKey(target));
+        item.target = target;
+        const parent = fs.statSync(rule.targetDir);
+        item.crossDrive =
+          getDriveLetter(file.path) !== getDriveLetter(target) || before.dev !== parent.dev;
+        if (item.crossDrive) this.checkRecycle(file.path, file.size);
+        item.allowed = true;
+        item.message = item.crossDrive
+          ? '跨盘：复制校验后回收原件，须确认'
+          : '同盘优先：直接移动，不重写文件内容';
+        entries.push({ item, before, parent });
+      } catch (error) {
+        item.message = error instanceof Error ? error.message : String(error);
+      }
+    }
+    const token = randomUUID();
+    this.preview = { token, scanId, entries };
+    return { token, items };
+  }
+  private checkRecycle(source: string, size: number, usedBytes = 0): void {
+    if (this.deps.longTrash.needsQuarantine(source)) return;
+    const decision = evaluateRecycleDecision(
+      this.deps.getRecyclePolicy(`${getDriveLetter(source)}\\`),
+      size,
+      usedBytes,
+    );
+    if (!decision.allowed) throw new Error(decision.message ?? '无法保证原件可恢复');
+  }
+  start(input: OrganizeStartRequest): OrganizeState {
+    if (this.isRunning()) throw new Error('整理任务进行中');
+    const plan = this.preview;
+    if (!plan || input.token !== plan.token || plan.scanId !== getActiveScanId(this.deps.db))
+      throw new Error('预览已失效，请重新预览');
+    const ids = new Set(input.fileIds);
+    const entries = plan.entries.filter(({ item }) => ids.has(item.id));
+    if (!ids.size || entries.length !== ids.size) throw new Error('包含不可移动文件，请重新选择');
+    if (entries.some(({ item }) => item.crossDrive) && !input.confirmCrossDrive)
+      throw new Error('跨盘移动必须明确确认');
+    const used = new Map<string, number>();
+    for (const { item } of entries) {
+      if (!item.crossDrive) continue;
+      const drive = getDriveLetter(item.source);
+      this.checkRecycle(item.source, item.size, used.get(drive) ?? 0);
+      used.set(drive, (used.get(drive) ?? 0) + item.size);
+    }
+    this.preview = null;
+    this.controller = new AbortController();
+    this.state = {
+      status: 'running',
+      total: entries.length,
+      processed: 0,
+      currentPath: '',
+      results: [],
+    };
+    this.active = this.run(plan.scanId, entries, this.controller.signal).finally(() => {
+      this.active = null;
+      this.controller = null;
+    });
+    return this.getState();
+  }
+  private async run(scanId: number, entries: PlannedItem[], signal: AbortSignal): Promise<void> {
+    for (const { item, before, parent } of entries) {
+      await setImmediate();
+      if (signal.aborted) break;
+      let published = false;
+      let moved = false;
+      this.state.currentPath = item.source;
+      try {
+        this.local(item.source);
+        const directory = this.local(path.dirname(item.target));
+        const currentParent = fs.statSync(directory);
+        if (currentParent.ino !== parent.ino || currentParent.dev !== parent.dev)
+          throw new Error('目标目录已变化，请重新预览');
+        assertUnchanged(item.source, before);
+        if (getFileById(this.deps.db, scanId, item.id)?.path !== item.source)
+          throw new Error('文件索引已变化，请重新预览');
+        if (item.crossDrive) {
+          this.checkRecycle(item.source, item.size);
+          const space = await fs.promises.statfs(directory);
+          if (space.bavail * space.bsize < item.size + 64 * 1024 * 1024)
+            throw new Error('目标硬盘空间不足');
+          await copyVerifiedForMove(item.source, item.target, signal);
+          published = true;
+          signal.throwIfAborted();
+          this.local(item.source);
+          assertUnchanged(item.source, before);
+          this.checkRecycle(item.source, item.size);
+          if (this.deps.longTrash.needsQuarantine(item.source)) {
+            await this.deps.longTrash.quarantine(item.source);
+          } else {
+            await this.deps.trashItem(item.source);
+          }
+        } else {
+          signal.throwIfAborted();
+          moveFileNoReplace(item.source, item.target);
+          published = true;
+        }
+        moved = true;
+        updateOrganizedFile(this.deps.db, scanId, item.id, item.source, item.target);
+        this.state.results.push({
+          source: item.source,
+          target: item.target,
+          status: 'moved',
+          message: item.crossDrive
+            ? '移动完成，原件在回收站或长路径回收区可还原'
+            : '同盘移动完成，文件内容未改写',
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.state.results.push({
+          source: item.source,
+          target: published ? item.target : '',
+          status: signal.aborted ? 'cancelled' : 'failed',
+          message: moved
+            ? `文件已移动，索引更新失败，请重新扫描：${reason}`
+            : published
+              ? `原件及已生成副本保留：${reason}`
+              : `原件保留：${reason}`,
+        });
+      }
+      this.state.processed += 1;
+    }
+    this.state.currentPath = '';
+    this.state.status = signal.aborted ? 'cancelled' : 'completed';
+  }
+}
