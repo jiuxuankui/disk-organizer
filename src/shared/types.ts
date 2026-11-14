@@ -345,3 +345,9 @@ export interface DataInfo {
 export interface ClearDataResult {
   backup: BackupFileInfo | null;
 }
+
+export interface IndexSyncResult {
+  removed: number;
+  checked: number;
+  skipped: boolean;
+}

@@ -14,6 +14,7 @@ import type {
   FileQuery,
   FileRecord,
   HomeOverview,
+  IndexSyncResult,
   LongTrashStatus,
   PagedResult,
   RecycleStatus,
@@ -62,6 +63,7 @@ export interface DiskOrganizerApi {
   queryFiles(query: FileQuery): Promise<PagedResult<FileRecord>>;
   listFileIds(query: FileQuery): Promise<number[]>;
   getFile(id: number): Promise<FileRecord | null>;
+  syncIndex(): Promise<IndexSyncResult>;
   getDuplicatesState(): Promise<DuplicatesState>;
   startDuplicates(drives?: string[]): Promise<DuplicatesState>;
   cancelDuplicates(): Promise<DuplicatesState>;

@@ -15,9 +15,11 @@ import type { VideoService } from '../services/videoService';
 import type { ArchiveService } from '../services/archiveService';
 
 import type { OrganizeService } from '../services/organizeService';
+import type { IndexSyncService } from '../services/indexSyncService';
 
 export interface IpcContext {
   organize: OrganizeService;
+  indexSync: IndexSyncService;
   archive: ArchiveService;
   video: VideoService;
   paths: AppPaths;

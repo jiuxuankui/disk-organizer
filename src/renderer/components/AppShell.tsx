@@ -119,6 +119,22 @@ export default function AppShell(): React.JSX.Element {
   }, [notice, message, clearNotice]);
 
   useEffect(() => {
+    const sync = (): void => {
+      void useAppStore.getState().syncIndex();
+    };
+    void useAppStore.getState().syncIndex();
+    const onVisibility = (): void => {
+      if (!document.hidden) sync();
+    };
+    window.addEventListener('focus', sync);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', sync);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+
+  useEffect(() => {
     let handledAt = 0;
     const back = (): void => {
       const now = Date.now();

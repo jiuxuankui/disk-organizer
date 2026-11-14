@@ -32,6 +32,8 @@ export interface Notice {
 
 const PAGE_KEY = 'disk-organizer:last-page';
 const DRIVE_KEY = 'disk-organizer:last-drive';
+const INDEX_SYNC_INTERVAL_MS = 15_000;
+let lastIndexSyncAt = 0;
 const VALID_PAGES: PageKey[] = ['overview', 'files', 'duplicates', 'video', 'organize', 'settings'];
 
 function readPage(): PageKey {
@@ -106,6 +108,7 @@ interface AppState {
   refreshDrives(): Promise<void>;
   refreshOverview(silent?: boolean): Promise<void>;
   refreshRecycleStatus(): Promise<void>;
+  syncIndex(force?: boolean): Promise<void>;
   startScan(input: {
     drives: string[];
     excludedPaths?: string[];
@@ -248,6 +251,31 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ recycleStatus: await window.api.getRecycleStatus() });
     } catch {
       // Status is advisory; deletion previews still fail closed in the main process.
+    }
+  },
+
+  async syncIndex(force = false) {
+    if (!force && Date.now() - lastIndexSyncAt < INDEX_SYNC_INTERVAL_MS) return;
+    try {
+      const result = await window.api.syncIndex();
+      if (result.skipped) return;
+      lastIndexSyncAt = Date.now();
+      if (result.removed === 0) return;
+      set({ dataVersion: get().dataVersion + 1 });
+      const detail = get().detailFile;
+      if (detail) {
+        const current = await window.api.getFile(detail.id).catch(() => null);
+        if (!current && get().detailFile?.id === detail.id) set({ detailFile: null });
+      }
+      await get().refreshOverview(true);
+      set({
+        notice: notice(
+          'info',
+          `已自动同步磁盘变化：${result.removed} 个文件已不在原位置，已从索引移除`,
+        ),
+      });
+    } catch {
+      // Synchronizing with the disk is best effort; the next focus retries it.
     }
   },
 

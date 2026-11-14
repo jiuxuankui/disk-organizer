@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 import { IPC } from '@shared/ipcChannels';
-import type { FileQuery, FileRecord, PagedResult } from '@shared/types';
+import type { FileQuery, FileRecord, IndexSyncResult, PagedResult } from '@shared/types';
 import { getFileById, queryFileIds, queryFiles } from '../db/filesRepo';
 import { getActiveScanId } from '../db/scansRepo';
 import type { IpcContext } from './context';
@@ -37,4 +37,6 @@ export function registerFilesIpc(ctx: IpcContext): void {
     if (scanId === null) return null;
     return getFileById(ctx.db, scanId, id);
   });
+
+  ipcMain.handle(IPC.filesSyncIndex, (): Promise<IndexSyncResult> => ctx.indexSync.sync());
 }

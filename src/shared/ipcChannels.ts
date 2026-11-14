@@ -42,6 +42,7 @@ export const IPC = {
   filesListIds: 'files:list-ids',
   filesGet: 'files:get',
   filesFacets: 'files:facets',
+  filesSyncIndex: 'files:sync-index',
 
   duplicatesState: 'duplicates:state',
   duplicatesStart: 'duplicates:start',

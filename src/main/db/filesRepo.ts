@@ -150,11 +150,7 @@ export function queryFiles(
   };
 }
 
-export function queryFileIds(
-  db: DatabaseSync,
-  scanId: number,
-  query: FileQuery,
-): number[] {
+export function queryFileIds(db: DatabaseSync, scanId: number, query: FileQuery): number[] {
   const where = buildWhere(scanId, query);
   const rows = db
     .prepare(`SELECT id FROM files WHERE ${where.sql}`)
@@ -162,11 +158,7 @@ export function queryFileIds(
   return rows.map((row) => row.id);
 }
 
-export function getFileById(
-  db: DatabaseSync,
-  scanId: number,
-  fileId: number,
-): FileRecord | null {
+export function getFileById(db: DatabaseSync, scanId: number, fileId: number): FileRecord | null {
   const row = db
     .prepare(
       `SELECT id, drive, path, name, ext, type, size, mtime_ms, ctime_ms, root_dir, dir_path
@@ -175,4 +167,66 @@ export function getFileById(
     )
     .get(scanId, fileId) as FileRow | undefined;
   return row ? mapFileRow(row) : null;
+}
+
+export interface IndexFileRef {
+  id: number;
+  path: string;
+  pathKey: string;
+  size: number;
+  drive: string;
+}
+
+const SYNC_CHUNK_SIZE = 500;
+
+export function listIndexFileRefs(db: DatabaseSync, scanId: number): IndexFileRef[] {
+  const rows = db
+    .prepare('SELECT id, path, path_key, size, drive FROM files WHERE scan_id = ? ORDER BY id')
+    .all(scanId) as unknown as Array<{
+    id: number;
+    path: string;
+    path_key: string;
+    size: number;
+    drive: string;
+  }>;
+  return rows.map((row) => ({
+    id: row.id,
+    path: row.path,
+    pathKey: row.path_key,
+    size: row.size,
+    drive: row.drive,
+  }));
+}
+
+export function pruneMissingFiles(db: DatabaseSync, scanId: number, missing: IndexFileRef[]): void {
+  if (missing.length === 0) return;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (let index = 0; index < missing.length; index += SYNC_CHUNK_SIZE) {
+      const chunk = missing.slice(index, index + SYNC_CHUNK_SIZE);
+      const placeholders = chunk.map(() => '?').join(', ');
+      db.prepare(`DELETE FROM files WHERE scan_id = ? AND id IN (${placeholders})`).run(
+        scanId,
+        ...chunk.map((row) => row.id),
+      );
+      db.prepare(`DELETE FROM hash_cache WHERE path_key IN (${placeholders})`).run(
+        ...chunk.map((row) => row.pathKey),
+      );
+    }
+    const removedBytes = missing.reduce((sum, row) => sum + Math.max(0, row.size), 0);
+    db.prepare(
+      `UPDATE scans
+       SET identified_bytes = MAX(0, identified_bytes - ?),
+           total_files = MAX(0, total_files - ?)
+       WHERE id = ?`,
+    ).run(removedBytes, missing.length, scanId);
+    db.exec('COMMIT');
+  } catch (error) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Transaction may already be rolled back.
+    }
+    throw error;
+  }
 }

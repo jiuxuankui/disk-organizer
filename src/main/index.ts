@@ -5,6 +5,7 @@ import path from 'node:path';
 import { VideoService } from './services/videoService';
 import { ArchiveService } from './services/archiveService';
 import { OrganizeService } from './services/organizeService';
+import { IndexSyncService } from './services/indexSyncService';
 import type { DeleteEvent, ScanEvent } from '@shared/types';
 import { IPC } from '@shared/ipcChannels';
 import { createMainWindow } from './window';
@@ -236,8 +237,16 @@ if (!app.requestSingleInstanceLock()) {
     });
     organize = organizeService;
 
+    const indexSyncService = new IndexSyncService({
+      db,
+      drives,
+      isBusy: () =>
+        scanService.isScanning() || deleteSvc.isRunning() || organizeService.isRunning(),
+    });
+
     registerIpc({
       organize: organizeService,
+      indexSync: indexSyncService,
       archive: archiveService,
       video: videoService,
       paths,
