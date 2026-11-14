@@ -9,18 +9,40 @@ import { DEFAULT_EXCLUDED_PATHS, SYSTEM_EXCLUDED_DIR_NAMES } from '@shared/const
 import { getDriveLetter, isSameOrSubPath, normalizePathKey } from './filesystem';
 import { moveFileNoReplace, readFileAttributes } from './windowsService';
 
+export function ruleMatchesFile(file: FileRecord, rule: OrganizeRule): boolean {
+  const tests: Array<() => boolean> = [];
+  if (rule.type !== 'all') tests.push(() => rule.type === file.type);
+  if (rule.extensions.length > 0)
+    tests.push(() => rule.extensions.includes(file.ext.toLowerCase()));
+  if (rule.nameContains.trim() !== '')
+    tests.push(() => file.name.toLowerCase().includes(rule.nameContains.trim().toLowerCase()));
+  if (rule.minSize !== null || rule.maxSize !== null) {
+    const { minSize, maxSize } = rule;
+    tests.push(
+      () =>
+        (minSize === null || file.size >= minSize) && (maxSize === null || file.size <= maxSize),
+    );
+  }
+  if (rule.mtimeFrom !== null || rule.mtimeTo !== null) {
+    const { mtimeFrom, mtimeTo } = rule;
+    tests.push(
+      () =>
+        (mtimeFrom === null || file.mtimeMs >= mtimeFrom) &&
+        (mtimeTo === null || file.mtimeMs <= mtimeTo),
+    );
+  }
+  if (rule.pathContains.trim() !== '')
+    tests.push(() => file.path.toLowerCase().includes(rule.pathContains.trim().toLowerCase()));
+  if (tests.length === 0) return true;
+  return rule.matchMode === 'any' ? tests.some((test) => test()) : tests.every((test) => test());
+}
+
 export function chooseOrganizeRule(
   file: FileRecord,
   rules: OrganizeRule[],
   priority: OrganizePriority = 'sameDrive',
 ): OrganizeRule | undefined {
-  const matches = rules.filter(
-    (rule) =>
-      rule.enabled &&
-      (rule.type === 'all' || rule.type === file.type) &&
-      (rule.extensions.length === 0 || rule.extensions.includes(file.ext.toLowerCase())) &&
-      file.name.toLowerCase().includes(rule.nameContains.toLowerCase()),
-  );
+  const matches = rules.filter((rule) => rule.enabled && ruleMatchesFile(file, rule));
   if (priority === 'order') return matches[0];
   return matches.find((rule) => getDriveLetter(rule.targetDir) === file.drive) ?? matches[0];
 }

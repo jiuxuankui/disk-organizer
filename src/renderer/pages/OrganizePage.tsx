@@ -5,9 +5,11 @@ import {
   Button,
   Card,
   Checkbox,
+  DatePicker,
   Dropdown,
   Empty,
   Input,
+  InputNumber,
   List,
   Modal,
   Progress,
@@ -20,6 +22,7 @@ import {
   Typography,
 } from 'antd';
 import { AppstoreAddOutlined, FolderOpenOutlined, PlusOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { FILE_TYPES } from '@shared/fileTypes';
 import { formatBytes } from '@shared/format';
 import {
@@ -34,6 +37,8 @@ import PageHeader from '../components/PageHeader';
 import { useBackClose } from '../lib/back';
 import { hasMoreItems, nextVisibleCount, ORGANIZE_PREVIEW_BATCH } from '../lib/organizePreview';
 import { describeError, useAppStore } from '../store/useAppStore';
+
+const MB = 1024 * 1024;
 
 export default function OrganizePage(): React.JSX.Element {
   const settings = useAppStore((store) => store.settings);
@@ -287,6 +292,12 @@ export default function OrganizePage(): React.JSX.Element {
                       extensions: [],
                       nameContains: '',
                       targetDir: '',
+                      minSize: null,
+                      maxSize: null,
+                      mtimeFrom: null,
+                      mtimeTo: null,
+                      pathContains: '',
+                      matchMode: 'all',
                     },
                   ]);
                   invalidate();
@@ -301,7 +312,8 @@ export default function OrganizePage(): React.JSX.Element {
           }
         >
           <Typography.Paragraph type="secondary">
-            类型、扩展名和名称条件同时满足才匹配；扩展名和名称留空表示不限。命中多条规则时按上方“规则优先级”选择：按规则顺序取第一条，或同盘优先。所有规则指向同一个目标即可集中归档。“添加预设”可一键加入视频、图片、文档、音乐、压缩包、安装包规则，添加后只需选择目标文件夹。
+            类型、扩展名、名称、大小、时间和路径等条件可按“全部满足 /
+            任一满足”组合；留空的条件不参与匹配，全部留空时匹配全部文件。命中多条规则时按上方“规则优先级”选择：按规则顺序取第一条，或同盘优先。所有规则指向同一个目标即可集中归档。“添加预设”可一键加入视频、图片、文档、音乐、压缩包、安装包规则，添加后只需选择目标文件夹。
           </Typography.Paragraph>
           <Space align="center" wrap>
             <Typography.Text>命中多条规则时：</Typography.Text>
@@ -426,6 +438,77 @@ export default function OrganizePage(): React.JSX.Element {
                         选择目标文件夹
                       </Button>
                     </Space.Compact>
+                    <Space wrap>
+                      <Select
+                        aria-label="匹配方式"
+                        value={rule.matchMode}
+                        disabled={locked}
+                        style={{ width: 120 }}
+                        options={[
+                          { value: 'all', label: '全部满足' },
+                          { value: 'any', label: '任一满足' },
+                        ]}
+                        onChange={(matchMode) => changeRule(rule.id, { matchMode })}
+                      />
+                      <Space size={6}>
+                        <Typography.Text>最小大小</Typography.Text>
+                        <InputNumber
+                          aria-label="最小大小"
+                          min={0}
+                          disabled={locked}
+                          value={rule.minSize === null ? null : rule.minSize / MB}
+                          placeholder="不限"
+                          addonAfter="MB"
+                          style={{ width: 120 }}
+                          onChange={(value) =>
+                            changeRule(rule.id, {
+                              minSize: value === null ? null : Math.round(value * MB),
+                            })
+                          }
+                        />
+                      </Space>
+                      <Space size={6}>
+                        <Typography.Text>最大大小</Typography.Text>
+                        <InputNumber
+                          aria-label="最大大小"
+                          min={0}
+                          disabled={locked}
+                          value={rule.maxSize === null ? null : rule.maxSize / MB}
+                          placeholder="不限"
+                          addonAfter="MB"
+                          style={{ width: 120 }}
+                          onChange={(value) =>
+                            changeRule(rule.id, {
+                              maxSize: value === null ? null : Math.round(value * MB),
+                            })
+                          }
+                        />
+                      </Space>
+                      <DatePicker.RangePicker
+                        aria-label="修改时间起止"
+                        disabled={locked}
+                        value={[
+                          rule.mtimeFrom !== null ? dayjs(rule.mtimeFrom) : null,
+                          rule.mtimeTo !== null ? dayjs(rule.mtimeTo) : null,
+                        ]}
+                        onChange={(dates) =>
+                          changeRule(rule.id, {
+                            mtimeFrom: dates?.[0] ? dates[0].startOf('day').valueOf() : null,
+                            mtimeTo: dates?.[1] ? dates[1].endOf('day').valueOf() : null,
+                          })
+                        }
+                      />
+                      <Input
+                        aria-label="路径包含"
+                        placeholder="路径包含（可留空）"
+                        value={rule.pathContains}
+                        disabled={locked}
+                        style={{ width: 200 }}
+                        onChange={(event) =>
+                          changeRule(rule.id, { pathContains: event.target.value })
+                        }
+                      />
+                    </Space>
                   </Space>
                 </Card>
               ))

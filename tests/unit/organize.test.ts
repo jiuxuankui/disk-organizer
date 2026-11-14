@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { FileRecord } from '@shared/types';
 import {
   organizePreviewSchema,
+  organizeRuleSchema,
   organizeRulesSchema,
   organizeStartSchema,
   type OrganizeRule,
 } from '@shared/organize';
-import { chooseOrganizeRule } from '../../src/main/services/organizeCore';
+import { chooseOrganizeRule, ruleMatchesFile } from '../../src/main/services/organizeCore';
+
+const MB = 1024 * 1024;
 
 const rule: OrganizeRule = {
   id: 'dbb71d18-ab33-4a49-97ae-fcd4b035720b',
@@ -16,8 +19,23 @@ const rule: OrganizeRule = {
   extensions: ['pdf'],
   nameContains: 'report',
   targetDir: 'D:\\文档',
+  minSize: null,
+  maxSize: null,
+  mtimeFrom: null,
+  mtimeTo: null,
+  pathContains: '',
+  matchMode: 'all',
 };
 const file = { drive: 'C:', name: 'REPORT.PDF', ext: 'pdf', type: 'document' } as FileRecord;
+const sizedFile = {
+  drive: 'C:',
+  name: 'report.pdf',
+  ext: 'pdf',
+  type: 'document',
+  size: 5 * 1024 * 1024,
+  mtimeMs: 1_700_000_000_000,
+  path: 'C:\\工作\\报告\\report.pdf',
+} as FileRecord;
 
 describe('organize rules and IPC boundary', () => {
   it('normalizes extensions and rejects invalid paths, duplicate ids and oversized rule sets', () => {
@@ -89,5 +107,74 @@ describe('organize rules and IPC boundary', () => {
     expect(organizePreviewSchema.safeParse({ sourceDir: 'C:\\docs', rules: [rule] }).success).toBe(
       false,
     );
+  });
+
+  it('matches size, time and path conditions individually and via all/any', () => {
+    const base: OrganizeRule = {
+      ...rule,
+      type: 'all',
+      extensions: [],
+      nameContains: '',
+      targetDir: 'C:\\归类',
+    };
+    expect(ruleMatchesFile(sizedFile, { ...base, minSize: 1 * MB, maxSize: 10 * MB })).toBe(true);
+    expect(ruleMatchesFile(sizedFile, { ...base, minSize: 10 * MB })).toBe(false);
+    expect(ruleMatchesFile(sizedFile, { ...base, maxSize: 1 * MB })).toBe(false);
+    expect(
+      ruleMatchesFile(sizedFile, {
+        ...base,
+        mtimeFrom: 1_699_000_000_000,
+        mtimeTo: 1_701_000_000_000,
+      }),
+    ).toBe(true);
+    expect(ruleMatchesFile(sizedFile, { ...base, mtimeFrom: 1_701_000_000_000 })).toBe(false);
+    expect(ruleMatchesFile(sizedFile, { ...base, pathContains: '报告' })).toBe(true);
+    expect(ruleMatchesFile(sizedFile, { ...base, pathContains: '不存在' })).toBe(false);
+
+    expect(ruleMatchesFile(sizedFile, { ...base, minSize: 10 * MB, pathContains: '报告' })).toBe(
+      false,
+    );
+    expect(
+      ruleMatchesFile(sizedFile, {
+        ...base,
+        matchMode: 'any',
+        minSize: 10 * MB,
+        pathContains: '报告',
+      }),
+    ).toBe(true);
+    expect(
+      ruleMatchesFile(sizedFile, {
+        ...base,
+        matchMode: 'any',
+        minSize: 10 * MB,
+        pathContains: '不存在',
+      }),
+    ).toBe(false);
+    expect(ruleMatchesFile(sizedFile, { ...base, matchMode: 'any' })).toBe(true);
+    expect(ruleMatchesFile(sizedFile, base)).toBe(true);
+  });
+
+  it('fills defaults for legacy rules and rejects invalid ranges', () => {
+    const parsed = organizeRuleSchema.parse({
+      id: rule.id,
+      name: '旧规则',
+      enabled: true,
+      type: 'document',
+      extensions: [],
+      nameContains: '',
+      targetDir: 'D:\\文档',
+    });
+    expect(parsed.minSize).toBeNull();
+    expect(parsed.maxSize).toBeNull();
+    expect(parsed.mtimeFrom).toBeNull();
+    expect(parsed.mtimeTo).toBeNull();
+    expect(parsed.pathContains).toBe('');
+    expect(parsed.matchMode).toBe('all');
+
+    expect(organizeRuleSchema.safeParse({ ...rule, minSize: 20, maxSize: 10 }).success).toBe(false);
+    expect(organizeRuleSchema.safeParse({ ...rule, mtimeFrom: 200, mtimeTo: 100 }).success).toBe(
+      false,
+    );
+    expect(organizeRuleSchema.safeParse({ ...rule, matchMode: 'neither' }).success).toBe(false);
   });
 });

@@ -28,8 +28,22 @@ export const organizeRuleSchema = z
       .max(50),
     nameContains: z.string().trim().max(120),
     targetDir: localOrganizePath,
+    minSize: z.number().int().min(0).nullable().default(null),
+    maxSize: z.number().int().min(0).nullable().default(null),
+    mtimeFrom: z.number().int().min(0).nullable().default(null),
+    mtimeTo: z.number().int().min(0).nullable().default(null),
+    pathContains: z.string().trim().max(120).default(''),
+    matchMode: z.enum(['all', 'any']).default('all'),
   })
-  .strict();
+  .strict()
+  .refine(
+    (rule) => rule.minSize === null || rule.maxSize === null || rule.minSize <= rule.maxSize,
+    '最小大小不能大于最大大小',
+  )
+  .refine(
+    (rule) => rule.mtimeFrom === null || rule.mtimeTo === null || rule.mtimeFrom <= rule.mtimeTo,
+    '修改时间起始不能晚于结束',
+  );
 export const organizeRulesSchema = z
   .array(organizeRuleSchema)
   .max(50)
@@ -129,6 +143,12 @@ export function createPresetRule(
     extensions: [...preset.extensions],
     nameContains: preset.nameContains,
     targetDir: '',
+    minSize: null,
+    maxSize: null,
+    mtimeFrom: null,
+    mtimeTo: null,
+    pathContains: '',
+    matchMode: 'all',
   };
 }
 

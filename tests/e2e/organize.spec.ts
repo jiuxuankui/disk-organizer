@@ -175,7 +175,7 @@ test('预设规则支持一键添加、编辑目标文件夹并持久化', async
   await expect(page.getByRole('textbox', { name: '规则名称', exact: true })).toHaveValue(
     '图片归档',
   );
-  await expect(page.locator('.organize-rule .ant-select-selection-item')).toHaveText('图片');
+  await expect(page.getByText('图片', { exact: true })).toBeVisible();
   await expect(page.getByRole('textbox', { name: '扩展名条件', exact: true })).toHaveValue('');
   await expect(page.getByRole('textbox', { name: '文件名包含', exact: true })).toHaveValue('');
 

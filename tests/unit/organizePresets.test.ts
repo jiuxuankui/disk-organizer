@@ -42,6 +42,12 @@ describe('归类整理预设规则', () => {
       extensions: [],
       nameContains: '',
       targetDir: '',
+      minSize: null,
+      maxSize: null,
+      mtimeFrom: null,
+      mtimeTo: null,
+      pathContains: '',
+      matchMode: 'all',
     });
 
     const [parsed] = organizeRulesSchema.parse([{ ...rule, targetDir: 'D:\\归档\\视频' }]);

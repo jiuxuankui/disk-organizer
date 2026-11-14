@@ -29,6 +29,12 @@ const makeRule = (targetDir: string): OrganizeRule => ({
   extensions: [],
   nameContains: '',
   targetDir,
+  minSize: null,
+  maxSize: null,
+  mtimeFrom: null,
+  mtimeTo: null,
+  pathContains: '',
+  matchMode: 'all',
 });
 function setup() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'disk-organize-test-'));
