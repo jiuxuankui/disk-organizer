@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
 
 export function createMainWindow(): BrowserWindow {
@@ -11,6 +11,7 @@ export function createMainWindow(): BrowserWindow {
     autoHideMenuBar: true,
     backgroundColor: '#f4f6f9',
     title: '硬盘整理',
+    icon: app.isPackaged ? undefined : path.join(app.getAppPath(), 'build', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
