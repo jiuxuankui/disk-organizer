@@ -4,6 +4,7 @@ import type { DeletePreview } from '@shared/types';
 import { COPY } from '@shared/copy';
 import { formatBytes, formatCount } from '@shared/format';
 import { useAppStore } from '../store/useAppStore';
+import { useBackClose } from '../lib/back';
 
 export default function DeleteFlow(): React.JSX.Element {
   const phase = useAppStore((state) => state.deletePhase);
@@ -18,6 +19,8 @@ export default function DeleteFlow(): React.JSX.Element {
 
   const [wholeConfirmedFor, setWholeConfirmedFor] = useState<DeletePreview | null>(null);
   const wholeConfirmed = preview !== null && wholeConfirmedFor === preview;
+  useBackClose(phase === 'preview', closeDeleteResult);
+  useBackClose(phase === 'result', closeDeleteResult);
 
   const requireWholeConfirm = (preview?.groupsAllDeleted ?? 0) > 0;
   const canConfirm =

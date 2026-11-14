@@ -68,6 +68,13 @@ const api: DiskOrganizerApi = {
   openPath: (path: string) => ipcRenderer.invoke(IPC.appOpenPath, { path }),
   showItemInFolder: (path: string) => ipcRenderer.invoke(IPC.appShowItemInFolder, { path }),
   copyText: (text: string) => ipcRenderer.invoke(IPC.appCopyText, { text }),
+  onBackCommand: (listener) => {
+    const handler = (): void => listener();
+    ipcRenderer.on(IPC.appBack, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC.appBack, handler);
+    };
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);

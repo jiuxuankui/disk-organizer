@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { App as AntApp, Button, Input, Modal, Select, Space, Tag, Typography } from 'antd';
 import type { InputNumberProps } from 'antd';
 import { InputNumber } from 'antd';
@@ -16,6 +16,7 @@ import {
   type FilesFilters,
   type FilterTag,
 } from '../lib/filesFilter';
+import { useBackClose } from '../lib/back';
 
 const MB = 1024 * 1024;
 
@@ -48,6 +49,8 @@ export default function FilesToolbar({
   const [customOpen, setCustomOpen] = useState(false);
   const [customMin, setCustomMin] = useState<number | null>(null);
   const [customMax, setCustomMax] = useState<number | null>(null);
+  const closeCustom = useCallback(() => setCustomOpen(false), []);
+  useBackClose(customOpen, closeCustom);
 
   const tags = activeFilterTags(filters, searchInput);
   const sizeKey = sizePresetKey(filters.minSize, filters.maxSize);

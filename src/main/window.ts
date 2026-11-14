@@ -1,5 +1,6 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
+import { IPC } from '@shared/ipcChannels';
 
 export function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -33,6 +34,11 @@ export function createMainWindow(): BrowserWindow {
 
   window.webContents.on('will-attach-webview', (event) => {
     event.preventDefault();
+  });
+
+  // Windows mouse side buttons arrive as window app commands; the page decides what "back" means.
+  window.on('app-command', (_event, command) => {
+    if (command === 'browser-backward') window.webContents.send(IPC.appBack);
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {

@@ -10,6 +10,7 @@ import {
 import { COPY } from '@shared/copy';
 import { formatCount, formatDateTime } from '@shared/format';
 import { isScanActive, useAppStore, type PageKey } from '../store/useAppStore';
+import { closeTopOverlay } from '../lib/back';
 import OverviewPage from '../pages/OverviewPage';
 import FilesPage from '../pages/FilesPage';
 import DuplicatesPage from '../pages/DuplicatesPage';
@@ -116,6 +117,28 @@ export default function AppShell(): React.JSX.Element {
     message.open({ type: notice.kind, content: notice.text, key: notice.id });
     clearNotice();
   }, [notice, message, clearNotice]);
+
+  useEffect(() => {
+    let handledAt = 0;
+    const back = (): void => {
+      const now = Date.now();
+      if (now - handledAt < 250) return;
+      handledAt = now;
+      if (closeTopOverlay()) return;
+      useAppStore.getState().goBack();
+    };
+    const stop = window.api.onBackCommand(back);
+    const onMouse = (event: MouseEvent): void => {
+      if (event.button !== 3) return;
+      event.preventDefault();
+      back();
+    };
+    window.addEventListener('mouseup', onMouse);
+    return () => {
+      stop();
+      window.removeEventListener('mouseup', onMouse);
+    };
+  }, []);
 
   return (
     <Layout className="app-shell">

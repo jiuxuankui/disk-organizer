@@ -14,6 +14,7 @@ import type {
   ScanEvent,
   ScanProgress,
 } from '@shared/types';
+import { popPage, pushPage } from '../lib/back';
 
 export type PageKey = 'overview' | 'files' | 'duplicates' | 'video' | 'organize' | 'settings';
 
@@ -81,6 +82,7 @@ interface AppState {
   overview: HomeOverview | null;
   scanState: ScanProgress | null;
   page: PageKey;
+  pageHistory: PageKey[];
   selectedDrive: string | null;
   scanModalOpen: boolean;
   detailFile: FileRecord | null;
@@ -97,6 +99,7 @@ interface AppState {
 
   initialize(): Promise<void>;
   setPage(page: PageKey): void;
+  goBack(): boolean;
   selectDrive(drive: string): void;
   openScanModal(): void;
   closeScanModal(): void;
@@ -146,6 +149,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   overview: null,
   scanState: null,
   page: readPage(),
+  pageHistory: [],
   selectedDrive: null,
   scanModalOpen: false,
   detailFile: null,
@@ -192,7 +196,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setPage(page) {
     writeStorage(PAGE_KEY, page);
-    set({ page });
+    const next = pushPage({ page: get().page, history: get().pageHistory }, page);
+    set({ page: next.page, pageHistory: next.history });
+  },
+
+  goBack() {
+    const next = popPage({ page: get().page, history: get().pageHistory });
+    if (next.page === get().page) return false;
+    writeStorage(PAGE_KEY, next.page);
+    set({ page: next.page, pageHistory: next.history });
+    return true;
   },
 
   selectDrive(drive) {
@@ -315,13 +328,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   browseToFiles(prefill) {
+    const next = pushPage({ page: get().page, history: get().pageHistory }, 'files');
     set({
       filesPrefill: {
         drive: prefill.drive ?? null,
         type: prefill.type ?? null,
         rootPath: prefill.rootPath ?? null,
       },
-      page: 'files',
+      page: next.page,
+      pageHistory: next.history,
     });
     writeStorage(PAGE_KEY, 'files');
   },

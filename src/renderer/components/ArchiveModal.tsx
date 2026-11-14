@@ -3,6 +3,7 @@ import { Alert, Button, Input, Modal, Progress, Select, Space, Typography } from
 import type { ArchiveFormat, ArchiveState } from '@shared/archive';
 import { formatBytes } from '@shared/format';
 import { describeError, useAppStore } from '../store/useAppStore';
+import { useBackClose } from '../lib/back';
 
 export default function ArchiveModal({
   fileIds,
@@ -20,6 +21,7 @@ export default function ArchiveModal({
   const openInExplorer = useAppStore((store) => store.openInExplorer);
   const running = state?.status === 'running' || state?.status === 'cancelling';
   const locked = pending || running || state === null;
+  useBackClose(!locked, onClose);
 
   useEffect(() => {
     let disposed = false;

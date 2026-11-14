@@ -4,6 +4,7 @@ import type { DriveInfo } from '@shared/types';
 import { COPY } from '@shared/copy';
 import { formatBytes } from '@shared/format';
 import { isScanActive, useAppStore } from '../store/useAppStore';
+import { useBackClose } from '../lib/back';
 
 function defaultSelected(): string[] {
   const state = useAppStore.getState();
@@ -149,6 +150,7 @@ export default function ScanSetupModal(): React.JSX.Element {
   const open = useAppStore((state) => state.scanModalOpen);
   const close = useAppStore((state) => state.closeScanModal);
   const hasScan = useAppStore((state) => Boolean(state.overview?.scan));
+  useBackClose(open, close);
 
   return (
     <Modal

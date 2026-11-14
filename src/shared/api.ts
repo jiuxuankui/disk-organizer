@@ -89,4 +89,5 @@ export interface DiskOrganizerApi {
   openPath(path: string): Promise<OpenPathResult>;
   showItemInFolder(path: string): Promise<void>;
   copyText(text: string): Promise<void>;
+  onBackCommand(listener: () => void): () => void;
 }

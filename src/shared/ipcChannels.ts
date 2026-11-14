@@ -21,6 +21,7 @@ export const IPC = {
   appMaximizeToggle: 'app:maximize-toggle',
   appClose: 'app:close',
   appOpenRecycleBin: 'app:open-recycle-bin',
+  appBack: 'app:back',
 
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',

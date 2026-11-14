@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   App,
@@ -22,6 +22,7 @@ import { FILE_TYPES } from '@shared/fileTypes';
 import { formatBytes } from '@shared/format';
 import type { OrganizePreview, OrganizeRule, OrganizeState } from '@shared/organize';
 import PageHeader from '../components/PageHeader';
+import { useBackClose } from '../lib/back';
 import { describeError, useAppStore } from '../store/useAppStore';
 
 export default function OrganizePage(): React.JSX.Element {
@@ -37,6 +38,8 @@ export default function OrganizePage(): React.JSX.Element {
   const [error, setError] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [crossConfirmed, setCrossConfirmed] = useState(false);
+  const closeConfirm = useCallback(() => setConfirmOpen(false), []);
+  useBackClose(confirmOpen, closeConfirm);
   const { message } = App.useApp();
   const running = state?.status === 'running' || state?.status === 'cancelling';
   const locked = pending || running || state === null;

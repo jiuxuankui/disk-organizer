@@ -17,6 +17,7 @@ import {
   Typography,
 } from 'antd';
 import { DeleteOutlined, FolderOpenOutlined, PlusOutlined } from '@ant-design/icons';
+import { useBackClose } from '../lib/back';
 import type {
   BackupFileInfo,
   DataInfo,
@@ -123,6 +124,8 @@ export default function SettingsPage(): React.JSX.Element {
   const [backupBusy, setBackupBusy] = useState(false);
   const [restoringPath, setRestoringPath] = useState<string | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
+  const closeClear = useCallback(() => setClearOpen(false), []);
+  useBackClose(clearOpen, closeClear);
   const [clearAccepted, setClearAccepted] = useState(false);
   const [clearing, setClearing] = useState(false);
 

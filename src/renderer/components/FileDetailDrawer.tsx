@@ -5,6 +5,7 @@ import { COPY } from '@shared/copy';
 import { fileTypeLabel } from '@shared/fileTypes';
 import { formatBytes, formatCount, formatDateTime } from '@shared/format';
 import { describeError, isScanActive, useAppStore } from '../store/useAppStore';
+import { useBackClose } from '../lib/back';
 
 export default function FileDetailDrawer(): React.JSX.Element {
   const file: FileRecord | null = useAppStore((state) => state.detailFile);
@@ -16,6 +17,7 @@ export default function FileDetailDrawer(): React.JSX.Element {
   const recycleUnavailable = useAppStore(
     (state) => state.recycleStatus?.available === false,
   );
+  useBackClose(file !== null, close);
 
   const copyPath = async (path: string): Promise<void> => {
     try {
