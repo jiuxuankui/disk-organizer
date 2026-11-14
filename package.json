@@ -57,6 +57,7 @@
       "createStartMenuShortcut": true,
       "shortcutName": "硬盘整理",
       "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh",
       "artifactName": "DiskOrganizer-Setup-${version}.exe"
     }
   },
