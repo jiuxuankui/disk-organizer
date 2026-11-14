@@ -3,7 +3,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { hashFile } from '../../src/main/services/hashCore';
+import {
+  hashFile,
+  isCurrentQuickHash,
+  QUICK_HASH_PREFIX,
+} from '../../src/main/services/hashCore';
 import {
   createInlineHashRunner,
   HashCancelledError,
@@ -60,6 +64,46 @@ describe('file hashing', () => {
     expect(fullFirst.fullHash).toBe(
       crypto.createHash('sha256').update(content).digest('hex'),
     );
+  });
+
+  it('samples head, middle and tail so same-header large files skip full comparison', async () => {
+    const dir = tempDir();
+    const content = crypto.randomBytes(300 * 1024);
+    const tailDifferent = Buffer.from(content);
+    tailDifferent[tailDifferent.length - 1024] ^= 0xff;
+    const middleDifferent = Buffer.from(content);
+    middleDifferent[Math.floor(middleDifferent.length / 2)] ^= 0xff;
+
+    const first = path.join(dir, 'first.bin');
+    const second = path.join(dir, 'second.bin');
+    const tail = path.join(dir, 'tail-different.bin');
+    const middle = path.join(dir, 'middle-different.bin');
+    fs.writeFileSync(first, content);
+    fs.writeFileSync(second, content);
+    fs.writeFileSync(tail, tailDifferent);
+    fs.writeFileSync(middle, middleDifferent);
+
+    const quickFirst = await hashFile(input(first), { mode: 'quick' });
+    const quickSecond = await hashFile(input(second), { mode: 'quick' });
+    const quickTail = await hashFile(input(tail), { mode: 'quick' });
+    const quickMiddle = await hashFile(input(middle), { mode: 'quick' });
+    expect(quickFirst.quickHash).toBe(quickSecond.quickHash);
+    expect(quickFirst.quickHash).toMatch(new RegExp(`^${QUICK_HASH_PREFIX}`));
+    expect(quickTail.quickHash).not.toBe(quickFirst.quickHash);
+    expect(quickMiddle.quickHash).not.toBe(quickFirst.quickHash);
+
+    const fullFirst = await hashFile(input(first), { mode: 'full' });
+    const fullTail = await hashFile(input(tail), { mode: 'full' });
+    const fullMiddle = await hashFile(input(middle), { mode: 'full' });
+    expect(fullFirst.fullHash).not.toBe(fullTail.fullHash);
+    expect(fullFirst.fullHash).not.toBe(fullMiddle.fullHash);
+  });
+
+  it('only trusts quick hash cache entries produced by the current sampler', () => {
+    expect(isCurrentQuickHash('plain-sha256', 64 * 1024)).toBe(true);
+    expect(isCurrentQuickHash('plain-sha256', 64 * 1024 + 1)).toBe(false);
+    expect(isCurrentQuickHash(`${QUICK_HASH_PREFIX}abc`, 300 * 1024)).toBe(true);
+    expect(isCurrentQuickHash(null, 300 * 1024)).toBe(false);
   });
 
   it('uses full content for files smaller than the quick window', async () => {

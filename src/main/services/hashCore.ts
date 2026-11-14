@@ -15,6 +15,15 @@ export interface HashInput {
   path: string;
   size: number;
   mtimeMs: number;
+  quickHash?: string | null;
+}
+
+export const QUICK_HASH_PREFIX = 'q2:';
+const FULL_HASH_CHUNK_BYTES = 4 * 1024 * 1024;
+
+export function isCurrentQuickHash(hash: string | null | undefined, size: number): boolean {
+  if (typeof hash !== 'string' || hash.length === 0) return false;
+  return size <= QUICK_HASH_BYTES || hash.startsWith(QUICK_HASH_PREFIX);
 }
 
 export interface HashOptions {
@@ -37,6 +46,36 @@ async function readChunk(
   return bytesRead;
 }
 
+function quickHashLayout(size: number): Array<{ position: number; length: number }> {
+  if (size <= 0) return [];
+  if (size <= QUICK_HASH_BYTES) return [{ position: 0, length: size }];
+  const span = Math.min(
+    QUICK_HASH_BYTES,
+    Math.max(1, Math.floor(size / 3)),
+  );
+  const positions = new Set([
+    0,
+    Math.max(0, Math.floor(size / 2) - Math.floor(span / 2)),
+    Math.max(0, size - span),
+  ]);
+  return [...positions]
+    .sort((a, b) => a - b)
+    .map((position) => ({ position, length: Math.min(span, size - position) }));
+}
+
+async function computeQuickHash(handle: fs.FileHandle, size: number): Promise<string> {
+  const hasher = crypto.createHash('sha256');
+  const layout = quickHashLayout(size);
+  if (layout.length === 0) return hasher.digest('hex');
+  const buffer = Buffer.alloc(Math.max(...layout.map((entry) => entry.length)));
+  for (const entry of layout) {
+    const bytesRead = await readChunk(handle, buffer.subarray(0, entry.length), entry.position);
+    hasher.update(buffer.subarray(0, bytesRead));
+  }
+  const digest = hasher.digest('hex');
+  return size <= QUICK_HASH_BYTES ? digest : `${QUICK_HASH_PREFIX}${digest}`;
+}
+
 export async function hashFile(input: HashInput, options: HashOptions): Promise<HashResult> {
   let handle: fs.FileHandle | null = null;
   try {
@@ -50,13 +89,10 @@ export async function hashFile(input: HashInput, options: HashOptions): Promise<
       return { quickHash: null, fullHash: null, failure: 'changed' };
     }
 
-    const quickSize = Math.min(QUICK_HASH_BYTES, input.size);
-    const quickBuffer = Buffer.alloc(Math.max(1, quickSize));
-    const quickRead = quickSize > 0 ? await readChunk(handle, quickBuffer, 0) : 0;
-    const quickHash = crypto
-      .createHash('sha256')
-      .update(quickBuffer.subarray(0, quickRead))
-      .digest('hex');
+    const quickHash =
+      options.mode === 'full' && isCurrentQuickHash(input.quickHash, input.size)
+        ? input.quickHash!
+        : await computeQuickHash(handle, input.size);
 
     if (options.mode === 'quick' || input.size <= QUICK_HASH_BYTES) {
       const unchanged = await verifyUnchanged(handle, input);
@@ -65,7 +101,7 @@ export async function hashFile(input: HashInput, options: HashOptions): Promise<
     }
 
     const hasher = crypto.createHash('sha256');
-    const chunk = Buffer.alloc(1024 * 1024);
+    const chunk = Buffer.alloc(FULL_HASH_CHUNK_BYTES);
     let position = 0;
     for (;;) {
       const bytesRead = await readChunk(handle, chunk, position);

@@ -6,6 +6,7 @@ export interface HashWorkItem {
   size: number;
   mtimeMs: number;
   mode: 'quick' | 'full';
+  quickHash?: string | null;
 }
 
 export interface HashWorkResult {

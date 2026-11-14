@@ -32,6 +32,7 @@ import {
   type HashWorkItem,
   type HashWorkResult,
 } from './hashRunner';
+import { isCurrentQuickHash } from './hashCore';
 
 export interface DuplicatesServiceDeps {
   db: DatabaseSync;
@@ -87,7 +88,8 @@ function cacheValid(row: HashCacheRow | undefined, candidate: CandidateRow): boo
   return (
     row !== undefined &&
     row.size === candidate.size &&
-    row.mtime_ms === candidate.mtime_ms
+    row.mtime_ms === candidate.mtime_ms &&
+    isCurrentQuickHash(row.quick_hash, candidate.size)
   );
 }
 
@@ -428,6 +430,7 @@ export class DuplicatesService {
           size: candidate.size,
           mtimeMs: candidate.mtime_ms,
           mode: 'full',
+          quickHash,
         });
       }
 

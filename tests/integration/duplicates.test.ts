@@ -337,6 +337,68 @@ describe('duplicate detection', () => {
     }
   });
 
+  it('skips full reads for large files whose difference is caught by quick sampling', async () => {
+    const { db, scanId } = seed();
+    try {
+      const size = 300 * 1024;
+      const content = Buffer.alloc(size, 0x61);
+      const tailDifferent = Buffer.from(content);
+      tailDifferent[size - 512] = 0x62;
+      const root = tempRoot();
+      insertFile(
+        db,
+        scanId,
+        createFile(root, 'large\\large-a.bin', content, Date.UTC(2020, 3, 1)),
+      );
+      insertFile(
+        db,
+        scanId,
+        createFile(root, 'large\\large-b.bin', content, Date.UTC(2020, 3, 2)),
+      );
+      insertFile(
+        db,
+        scanId,
+        createFile(root, 'large\\large-c.bin', tailDifferent, Date.UTC(2020, 3, 3)),
+      );
+
+      const fullPaths: string[] = [];
+      const inline = createInlineHashRunner();
+      const recording: HashRunner = {
+        async run(items, options) {
+          for (const item of items) {
+            if (item.mode === 'full') {
+              expect(item.quickHash).toBeTruthy();
+              fullPaths.push(item.path);
+            }
+          }
+          return inline.run(items, options);
+        },
+        async dispose() {
+          // no-op
+        },
+      };
+      const fast = new DuplicatesService({
+        db,
+        getDefaultMinSize: () => 0,
+        runnerFactory: () => recording,
+      });
+      await runToCompletion(fast);
+      expect(fast.getState().status).toBe('completed');
+
+      const large = fast.query(baseQuery()).items.find((group) => group.size === size);
+      expect(large).toBeDefined();
+      expect(large!.members.map((member) => member.name).sort()).toEqual([
+        'large-a.bin',
+        'large-b.bin',
+      ]);
+      expect(fullPaths.some((filePath) => filePath.endsWith('large-a.bin'))).toBe(true);
+      expect(fullPaths.some((filePath) => filePath.endsWith('large-b.bin'))).toBe(true);
+      expect(fullPaths.some((filePath) => filePath.endsWith('large-c.bin'))).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
   it('rejects drives outside the scan and empty selections', () => {
     const { db, service } = seed();
     try {

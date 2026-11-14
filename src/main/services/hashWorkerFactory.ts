@@ -7,7 +7,7 @@ function workerCount(): number {
   const cores = typeof os.availableParallelism === 'function'
     ? os.availableParallelism()
     : os.cpus().length;
-  return Math.max(1, Math.min(4, cores - 1));
+  return Math.max(1, Math.min(6, cores - 1));
 }
 
 export function createHashRunner(): HashRunner {
