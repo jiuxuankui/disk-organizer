@@ -183,7 +183,8 @@ async function main() {
     filesIndexed: overview?.scan?.totalFiles ?? 0,
   };
 
-  await app.close();
+  // 程序可能在 Playwright 执行 taskkill 前已自行退出，此时关闭失败不影响已采集的结果。
+  await app.close().catch(() => undefined);
 
   const checks = [
     ['首页查询 ≤ 500ms', home.max <= 500],
