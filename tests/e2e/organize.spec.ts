@@ -52,6 +52,9 @@ test.beforeAll(async () => {
   fs.ftruncateSync(large, 256 * 1024 * 1024);
   fs.closeSync(large);
   fs.writeFileSync(path.join(output, 'report.txt'), 'do not overwrite');
+  for (let i = 1; i <= 45; i++) {
+    fs.writeFileSync(path.join(fixture, `batch-${String(i).padStart(2, '0')}.txt`), `batch ${i}`);
+  }
   app = await electron.launch({
     executablePath: path.join(project, 'node_modules/electron/dist/electron.exe'),
     args: [project],
@@ -189,4 +192,25 @@ test('预设规则支持一键添加、编辑目标文件夹并持久化', async
   await expect(page.getByRole('textbox', { name: '规则目标文件夹', exact: true })).toHaveValue(
     output,
   );
+});
+
+test('预览分批显示 30 个，滚动到底部再加载剩余项', async () => {
+  const removeRule = page.getByRole('button', { name: '移除规则', exact: true });
+  while ((await removeRule.count()) > 0) await removeRule.first().click();
+  await page.getByRole('button', { name: '添加规则', exact: true }).click();
+  await page.getByRole('textbox', { name: '规则名称', exact: true }).fill('批量归档');
+  await page.getByRole('textbox', { name: '扩展名条件', exact: true }).fill('txt');
+  await page.getByRole('textbox', { name: '文件名包含', exact: true }).fill('batch');
+  await choose('选择目标文件夹', output);
+  await choose('选择来源文件夹', fixture);
+  await page.getByRole('button', { name: '生成整理预览', exact: true }).click();
+
+  await expect(page.getByText(/已显示 30 \/ 45 个/)).toBeVisible();
+  await expect(rows()).toHaveCount(30);
+  await expect(page.getByRole('button', { name: '加载更多', exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: '加载更多', exact: true }).click();
+  await expect(page.getByText(/已显示 45 \/ 45 个/)).toBeVisible();
+  await expect(rows()).toHaveCount(45);
+  await expect(page.getByRole('button', { name: '加载更多', exact: true })).toHaveCount(0);
 });

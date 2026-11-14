@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   App,
@@ -30,6 +30,7 @@ import {
 } from '@shared/organize';
 import PageHeader from '../components/PageHeader';
 import { useBackClose } from '../lib/back';
+import { hasMoreItems, nextVisibleCount, ORGANIZE_PREVIEW_BATCH } from '../lib/organizePreview';
 import { describeError, useAppStore } from '../store/useAppStore';
 
 export default function OrganizePage(): React.JSX.Element {
@@ -40,6 +41,9 @@ export default function OrganizePage(): React.JSX.Element {
   const [sourceDir, setSourceDir] = useState('');
   const [preview, setPreview] = useState<OrganizePreview | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
+  const [visibleCount, setVisibleCount] = useState(ORGANIZE_PREVIEW_BATCH);
+  const previewBodyRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<OrganizePreview | null>(null);
   const [state, setState] = useState<OrganizeState | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -56,6 +60,27 @@ export default function OrganizePage(): React.JSX.Element {
   useEffect(() => {
     if (settings) setRules(structuredClone(settings.organizeRules));
   }, [settings]);
+
+  useEffect(() => {
+    previewRef.current = preview;
+  }, [preview]);
+
+  const loadMore = useCallback((): void => {
+    setVisibleCount((current) =>
+      previewRef.current ? nextVisibleCount(current, previewRef.current.items.length) : current,
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!preview) return;
+    const body = previewBodyRef.current?.querySelector('.ant-table-body') as HTMLElement | null;
+    if (!body) return;
+    const onScroll = (): void => {
+      if (body.scrollTop + body.clientHeight >= body.scrollHeight - 4) loadMore();
+    };
+    body.addEventListener('scroll', onScroll, { passive: true });
+    return () => body.removeEventListener('scroll', onScroll);
+  }, [preview, loadMore]);
 
   useEffect(() => {
     let disposed = false;
@@ -93,6 +118,7 @@ export default function OrganizePage(): React.JSX.Element {
   function invalidate(): void {
     setPreview(null);
     setSelected([]);
+    setVisibleCount(ORGANIZE_PREVIEW_BATCH);
   }
   function changeRule(id: string, patch: Partial<OrganizeRule>): void {
     setRules((current) => current.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)));
@@ -138,6 +164,7 @@ export default function OrganizePage(): React.JSX.Element {
     invalidate();
     try {
       setPreview(await window.api.previewOrganize({ sourceDir, rules }));
+      setVisibleCount(ORGANIZE_PREVIEW_BATCH);
     } catch (cause) {
       setError(describeError(cause));
     } finally {
@@ -379,70 +406,78 @@ export default function OrganizePage(): React.JSX.Element {
             <Empty description="生成预览不会移动文件" />
           ) : (
             <>
-              <Table
-                size="small"
-                rowKey="id"
-                dataSource={preview.items}
-                pagination={{ pageSize: 50, showSizeChanger: false }}
-                scroll={{ x: 850 }}
-                rowSelection={{
-                  selectedRowKeys: selected,
-                  onChange: (keys) => setSelected(keys as number[]),
-                  getCheckboxProps: (item) => ({ disabled: locked || !item.allowed }),
-                  preserveSelectedRowKeys: true,
-                }}
-                columns={[
-                  {
-                    title: '原位置',
-                    dataIndex: 'source',
-                    width: 260,
-                    render: (value: string) => (
-                      <Typography.Text style={{ overflowWrap: 'anywhere' }}>
-                        {value}
-                      </Typography.Text>
-                    ),
-                  },
-                  {
-                    title: '目标位置',
-                    dataIndex: 'target',
-                    width: 260,
-                    render: (value: string) => (
-                      <Typography.Text style={{ overflowWrap: 'anywhere' }}>
-                        {value}
-                      </Typography.Text>
-                    ),
-                  },
-                  {
-                    title: '规则 / 大小',
-                    width: 120,
-                    render: (_, item) => (
-                      <>
-                        {item.rule}
-                        <br />
-                        {formatBytes(item.size)}
-                      </>
-                    ),
-                  },
-                  {
-                    title: '处理方式',
-                    width: 210,
-                    render: (_, item) => (
-                      <>
-                        <Tag
-                          color={!item.allowed ? 'default' : item.crossDrive ? 'orange' : 'blue'}
-                        >
-                          {!item.allowed ? '跳过' : item.crossDrive ? '跨盘' : '同盘'}
-                        </Tag>
-                        {item.message}
-                      </>
-                    ),
-                  },
-                ]}
-              />
+              <div ref={previewBodyRef}>
+                <Table
+                  size="small"
+                  rowKey="id"
+                  dataSource={preview.items.slice(0, visibleCount)}
+                  pagination={false}
+                  scroll={{ x: 850, y: 480 }}
+                  rowSelection={{
+                    selectedRowKeys: selected,
+                    onChange: (keys) => setSelected(keys as number[]),
+                    getCheckboxProps: (item) => ({ disabled: locked || !item.allowed }),
+                    preserveSelectedRowKeys: true,
+                  }}
+                  columns={[
+                    {
+                      title: '原位置',
+                      dataIndex: 'source',
+                      width: 260,
+                      render: (value: string) => (
+                        <Typography.Text style={{ overflowWrap: 'anywhere' }}>
+                          {value}
+                        </Typography.Text>
+                      ),
+                    },
+                    {
+                      title: '目标位置',
+                      dataIndex: 'target',
+                      width: 260,
+                      render: (value: string) => (
+                        <Typography.Text style={{ overflowWrap: 'anywhere' }}>
+                          {value}
+                        </Typography.Text>
+                      ),
+                    },
+                    {
+                      title: '规则 / 大小',
+                      width: 120,
+                      render: (_, item) => (
+                        <>
+                          {item.rule}
+                          <br />
+                          {formatBytes(item.size)}
+                        </>
+                      ),
+                    },
+                    {
+                      title: '处理方式',
+                      width: 210,
+                      render: (_, item) => (
+                        <>
+                          <Tag
+                            color={!item.allowed ? 'default' : item.crossDrive ? 'orange' : 'blue'}
+                          >
+                            {!item.allowed ? '跳过' : item.crossDrive ? '跨盘' : '同盘'}
+                          </Tag>
+                          {item.message}
+                        </>
+                      ),
+                    },
+                  ]}
+                />
+              </div>
               <Space wrap>
                 <Typography.Text>
-                  已选择 {selected.length} 个文件，其中跨盘 {crossCount} 个
+                  已显示 {Math.min(visibleCount, preview.items.length)} / {preview.items.length}{' '}
+                  个， 已选择 {selected.length} 个文件，其中跨盘 {crossCount} 个
                 </Typography.Text>
+                {hasMoreItems(visibleCount, preview.items.length) ? (
+                  <Button size="small" onClick={loadMore}>
+                    加载更多
+                  </Button>
+                ) : null}
                 <Button
                   disabled={locked}
                   onClick={() =>
