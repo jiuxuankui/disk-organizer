@@ -43,6 +43,7 @@ export const IPC = {
   filesListIds: 'files:list-ids',
   filesGet: 'files:get',
   filesFacets: 'files:facets',
+  filesFolderContents: 'files:folder-contents',
   filesSyncIndex: 'files:sync-index',
 
   deletePreview: 'delete:preview',

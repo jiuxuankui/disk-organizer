@@ -146,6 +146,12 @@ export interface FolderQuery {
   mtimeTo?: number | null;
 }
 
+export interface FolderContents {
+  folders: FolderFacet[];
+  files: FileRecord[];
+  totalFiles: number;
+}
+
 export interface DriveOverview {
   drive: string;
   label: string;
@@ -203,6 +209,12 @@ export interface DeletePreview {
   missingCount: number;
   blockedCount: number;
   previewNames: string[];
+  folderOkCount: number;
+  folderOkFileCount: number;
+  folderOkBytes: number;
+  folderNames: string[];
+  fileNames: string[];
+  blockedMessage: string | null;
   recycleAvailable: boolean;
   recycleMessage: string | null;
   canDelete: boolean;
@@ -213,6 +225,7 @@ export interface DeleteFailure {
   path: string;
   name: string;
   reason: string;
+  kind?: 'file' | 'folder';
 }
 
 export interface DeleteResult {
@@ -221,6 +234,9 @@ export interface DeleteResult {
   bytes: number;
   quarantined: number;
   quarantineBytes: number;
+  foldersSucceeded: number;
+  folderFileCount: number;
+  folderBytes: number;
   failures: DeleteFailure[];
   stopped: boolean;
 }
@@ -233,6 +249,9 @@ export interface DeleteProgress {
   failed: number;
   bytes: number;
   quarantined: number;
+  foldersSucceeded: number;
+  folderFileCount: number;
+  folderBytes: number;
   currentPath: string;
   startedAt: number | null;
   finishedAt: number | null;

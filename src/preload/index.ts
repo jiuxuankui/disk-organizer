@@ -26,6 +26,7 @@ const api: DiskOrganizerApi = {
   queryFiles: (query: FileQuery) => ipcRenderer.invoke(IPC.filesQuery, query),
   listFileIds: (query: FileQuery) => ipcRenderer.invoke(IPC.filesListIds, query),
   listFileFolders: (query) => ipcRenderer.invoke(IPC.filesFacets, query),
+  listFolderContents: (query) => ipcRenderer.invoke(IPC.filesFolderContents, query),
   getFile: (id: number) => ipcRenderer.invoke(IPC.filesGet, { id }),
   syncIndex: () => ipcRenderer.invoke(IPC.filesSyncIndex),
   getScanState: () => ipcRenderer.invoke(IPC.scanGetState),
@@ -42,8 +43,10 @@ const api: DiskOrganizerApi = {
       ipcRenderer.removeListener(IPC.scanEvent, handler);
     };
   },
-  previewDelete: (fileIds: number[]) => ipcRenderer.invoke(IPC.deletePreview, { fileIds }),
-  executeDelete: (fileIds: number[]) => ipcRenderer.invoke(IPC.deleteExecute, { fileIds }),
+  previewDelete: (fileIds, folderPaths) =>
+    ipcRenderer.invoke(IPC.deletePreview, { fileIds, folderPaths }),
+  executeDelete: (fileIds, folderPaths) =>
+    ipcRenderer.invoke(IPC.deleteExecute, { fileIds, folderPaths }),
   cancelDelete: () => ipcRenderer.invoke(IPC.deleteCancel),
   getRecycleStatus: () => ipcRenderer.invoke(IPC.deleteStatus),
   getLongTrash: () => ipcRenderer.invoke(IPC.longTrashList),

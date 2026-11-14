@@ -18,13 +18,13 @@ export function registerDeleteIpc(ctx: IpcContext): void {
   ipcMain.handle(IPC.deletePreview, (_event, raw: unknown): DeletePreview => {
     const payload: DeleteFilesPayload = parseIpc(deleteFilesSchema, raw, '删除预览');
     if (ctx.scan.isBusy()) throw new Error('扫描进行中，完成后再删除文件');
-    return ctx.deleteService.preview(payload.fileIds);
+    return ctx.deleteService.preview(payload.fileIds, payload.folderPaths);
   });
 
   ipcMain.handle(IPC.deleteExecute, (_event, raw: unknown): DeleteProgress => {
     const payload: DeleteFilesPayload = parseIpc(deleteFilesSchema, raw, '删除文件');
     ensureIdle(ctx);
-    return ctx.deleteService.start(payload.fileIds);
+    return ctx.deleteService.start(payload.fileIds, payload.folderPaths);
   });
 
   ipcMain.handle(IPC.deleteCancel, (): DeleteProgress => ctx.deleteService.cancel());

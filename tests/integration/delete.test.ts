@@ -6,11 +6,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { DeleteEvent } from '@shared/types';
 import { classifyFileName, getExtension } from '@shared/fileTypes';
 import { openDatabase } from '../../src/main/db/connection';
-import {
-  createScan,
-  finalizeScan,
-  setActiveScanId,
-} from '../../src/main/db/scansRepo';
+import { createScan, finalizeScan, setActiveScanId } from '../../src/main/db/scansRepo';
 import { normalizePathKey } from '../../src/main/services/filesystem';
 import { DeleteService } from '../../src/main/services/deleteService';
 import type { RecycleBinPolicy } from '../../src/main/services/recycleBinService';
@@ -48,12 +44,7 @@ function createFile(root: string, relative: string, content: Buffer, mtimeMs: nu
   };
 }
 
-function insertFile(
-  db: DatabaseSync,
-  scanId: number,
-  file: SeededFile,
-  drive = 'C:',
-): number {
+function insertFile(db: DatabaseSync, scanId: number, file: SeededFile, drive = 'C:'): number {
   const name = path.win32.basename(file.path);
   const dirPath = path.win32.dirname(file.path);
   const rootDir = path.win32.basename(dirPath);
@@ -431,6 +422,232 @@ describe('delete execution', () => {
       expect(fs.existsSync(files.c.path)).toBe(true);
     } finally {
       db.close();
+    }
+  });
+});
+
+interface FolderSeed {
+  db: DatabaseSync;
+  scanId: number;
+  root: string;
+  tree: string;
+  sub: string;
+  keep: string;
+  ids: { a: number; b: number; c: number; d: number; k: number };
+  paths: { a: string; b: string; c: string; d: string; k: string };
+}
+
+async function seedFolders(): Promise<FolderSeed> {
+  const temp = createTempDbPath('disk-organizer-delete-folders-');
+  cleanups.push(temp.cleanup);
+  const root = tempRoot();
+  const db = openDatabase(temp.dbPath);
+  cleanups.push(() => {
+    try {
+      db.close();
+    } catch {
+      // Database may already be closed by a test.
+    }
+  });
+  const files = {
+    a: createFile(root, 'tree\\a.bin', Buffer.alloc(1000, 0x41), Date.UTC(2020, 0, 1)),
+    b: createFile(root, 'tree\\sub\\b.bin', Buffer.alloc(2000, 0x42), Date.UTC(2021, 0, 1)),
+    c: createFile(root, 'tree\\sub\\deep\\c.bin', Buffer.alloc(3000, 0x43), Date.UTC(2022, 0, 1)),
+    d: createFile(root, 'tree\\sub\\deep\\d.bin', Buffer.alloc(4000, 0x44), Date.UTC(2023, 0, 1)),
+    k: createFile(root, 'keep\\k.bin', Buffer.alloc(500, 0x45), Date.UTC(2024, 0, 1)),
+  };
+  const scanId = createScan(db, ['C:'], 1000);
+  const ids = {} as FolderSeed['ids'];
+  let totalBytes = 0;
+  for (const key of ['a', 'b', 'c', 'd', 'k'] as const) {
+    ids[key] = insertFile(db, scanId, files[key]);
+    totalBytes += files[key].size;
+  }
+  finalizeScan(db, scanId, {
+    totalFiles: 5,
+    identifiedBytes: totalBytes,
+    skipped: [],
+    finishedAt: 2000,
+  });
+  setActiveScanId(db, scanId);
+  return {
+    db,
+    scanId,
+    root,
+    tree: path.join(root, 'tree'),
+    sub: path.join(root, 'tree', 'sub'),
+    keep: path.join(root, 'keep'),
+    ids,
+    paths: {
+      a: files.a.path,
+      b: files.b.path,
+      c: files.c.path,
+      d: files.d.path,
+      k: files.k.path,
+    },
+  };
+}
+
+function refuseFolders(): (target: string) => Promise<void> {
+  return async () => {
+    throw new Error('EPERM 拒绝访问');
+  };
+}
+
+describe('folder deletion', () => {
+  it('previews recursive folder counts and removes duplicate or nested folders', async () => {
+    const s = await seedFolders();
+    try {
+      const service = makeService(s.db);
+      const preview = service.preview([], [s.tree]);
+      expect(preview.total).toBe(1);
+      expect(preview.folderOkCount).toBe(1);
+      expect(preview.folderOkFileCount).toBe(4);
+      expect(preview.folderOkBytes).toBe(10000);
+      expect(preview.folderNames).toEqual(['tree']);
+      expect(preview.okCount).toBe(0);
+      expect(preview.canDelete).toBe(true);
+
+      const nested = service.preview([], [s.sub, s.tree, `${s.tree}\\`]);
+      expect(nested.total).toBe(1);
+      expect(nested.folderOkCount).toBe(1);
+      expect(nested.folderNames).toEqual(['tree']);
+    } finally {
+      s.db.close();
+    }
+  });
+
+  it('drops selected files covered by a selected folder', async () => {
+    const s = await seedFolders();
+    try {
+      const preview = makeService(s.db).preview([s.ids.b, s.ids.c, s.ids.k], [s.tree]);
+      expect(preview.folderOkCount).toBe(1);
+      expect(preview.folderOkFileCount).toBe(4);
+      expect(preview.okCount).toBe(1);
+      expect(preview.okBytes).toBe(500);
+      expect(preview.fileNames).toEqual(['k.bin']);
+    } finally {
+      s.db.close();
+    }
+  });
+
+  it('blocks drive roots, long paths, recycle-area folders and empty folders', async () => {
+    const s = await seedFolders();
+    try {
+      const service = makeService(s.db);
+      expect(service.preview([], ['C:\\']).blockedMessage).toContain('根目录');
+      const long = `C:\\${'a'.repeat(300)}`;
+      expect(service.preview([], [long]).blockedMessage).toContain('260');
+      const trash = path.join(s.root, '.disk-organizer-trash');
+      expect(service.preview([], [trash]).blockedMessage).toContain('回收区');
+      const missing = service.preview([], [path.join(s.root, 'missing')]);
+      expect(missing.missingCount).toBe(1);
+      expect(missing.canDelete).toBe(false);
+
+      const empty = path.join(s.root, 'empty-index-free');
+      fs.mkdirSync(empty);
+      const emptyPreview = service.preview([], [empty]);
+      expect(emptyPreview.missingCount).toBe(1);
+      expect(emptyPreview.canDelete).toBe(false);
+    } finally {
+      s.db.close();
+    }
+  });
+
+  it('trashes a whole folder, clears its index records and keeps other folders', async () => {
+    const s = await seedFolders();
+    try {
+      const service = makeService(s.db, {
+        trashItem: async (target) => fs.rmSync(target, { recursive: true, force: true }),
+      });
+      service.start([], [s.tree]);
+      await service.whenIdle();
+      const state = service.getState();
+      expect(state.status).toBe('completed');
+      expect(state.result?.succeeded).toBe(1);
+      expect(state.result?.foldersSucceeded).toBe(1);
+      expect(state.result?.folderFileCount).toBe(4);
+      expect(state.result?.folderBytes).toBe(10000);
+      expect(state.result?.failed).toBe(0);
+      expect(fs.existsSync(s.tree)).toBe(false);
+      expect(count(s.db, 'files')).toBe(1);
+      expect(scanTotals(s.db, s.scanId)).toEqual({ files: 1, bytes: 500 });
+      const remaining = s.db.prepare('SELECT path FROM files').all() as Array<{ path: string }>;
+      expect(remaining.map((row) => row.path)).toEqual([s.paths.k]);
+    } finally {
+      s.db.close();
+    }
+  });
+
+  it('combines folder and single-file deletion in one run', async () => {
+    const s = await seedFolders();
+    try {
+      const service = makeService(s.db, {
+        trashItem: async (target) => fs.rmSync(target, { recursive: true, force: true }),
+      });
+      service.start([s.ids.k], [s.tree]);
+      await service.whenIdle();
+      const result = service.getState().result;
+      expect(result?.succeeded).toBe(2);
+      expect(result?.foldersSucceeded).toBe(1);
+      expect(result?.folderFileCount).toBe(4);
+      expect(result?.folderBytes).toBe(10000);
+      expect(result?.bytes).toBe(10500);
+      expect(fs.existsSync(s.tree)).toBe(false);
+      expect(fs.existsSync(s.paths.k)).toBe(false);
+      expect(count(s.db, 'files')).toBe(0);
+    } finally {
+      s.db.close();
+    }
+  });
+
+  it('keeps failed folders and their index records', async () => {
+    const s = await seedFolders();
+    try {
+      const service = makeService(s.db, { trashItem: refuseFolders() });
+      service.start([], [s.tree]);
+      await service.whenIdle();
+      const result = service.getState().result;
+      expect(result?.foldersSucceeded).toBe(0);
+      expect(result?.failed).toBe(1);
+      expect(result?.failures[0]).toMatchObject({
+        kind: 'folder',
+        name: 'tree',
+        reason: expect.stringMatching(/权限|占用/),
+      });
+      expect(fs.existsSync(s.tree)).toBe(true);
+      expect(count(s.db, 'files')).toBe(5);
+    } finally {
+      s.db.close();
+    }
+  });
+
+  it('blocks only the folder that exceeds recycle capacity and deletes the rest', async () => {
+    const s = await seedFolders();
+    try {
+      const service = makeService(s.db, {
+        policy: () => policy({ maxCapacityBytes: 600 }),
+        trashItem: async (target) => fs.rmSync(target, { recursive: true, force: true }),
+      });
+      const preview = service.preview([s.ids.k], [s.tree, s.keep]);
+      expect(preview.folderOkCount).toBe(1);
+      expect(preview.folderNames).toEqual(['keep']);
+      expect(preview.blockedCount).toBe(1);
+      expect(preview.canDelete).toBe(true);
+
+      service.start([s.ids.k], [s.tree, s.keep]);
+      await service.whenIdle();
+      const result = service.getState().result;
+      expect(result?.foldersSucceeded).toBe(1);
+      expect(result?.folderFileCount).toBe(1);
+      expect(result?.folderBytes).toBe(500);
+      expect(result?.failed).toBe(1);
+      expect(result?.failures[0]).toMatchObject({ kind: 'folder', name: 'tree' });
+      expect(fs.existsSync(s.keep)).toBe(false);
+      expect(fs.existsSync(s.tree)).toBe(true);
+      expect(count(s.db, 'files')).toBe(4);
+    } finally {
+      s.db.close();
     }
   });
 });

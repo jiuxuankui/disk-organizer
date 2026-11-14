@@ -10,6 +10,7 @@ import type {
   DriveInfo,
   FileQuery,
   FileRecord,
+  FolderContents,
   FolderFacet,
   FolderQuery,
   HomeOverview,
@@ -64,6 +65,7 @@ export interface DiskOrganizerApi {
   queryFiles(query: FileQuery): Promise<PagedResult<FileRecord>>;
   listFileIds(query: FileQuery): Promise<number[]>;
   listFileFolders(query: FolderQuery): Promise<FolderFacet[]>;
+  listFolderContents(query: FolderQuery): Promise<FolderContents>;
   getFile(id: number): Promise<FileRecord | null>;
   syncIndex(): Promise<IndexSyncResult>;
   getScanState(): Promise<ScanProgress>;
@@ -72,8 +74,8 @@ export interface DiskOrganizerApi {
   resumeScan(): Promise<ScanProgress>;
   cancelScan(): Promise<ScanProgress>;
   onScanEvent(listener: (event: ScanEvent) => void): () => void;
-  previewDelete(fileIds: number[]): Promise<DeletePreview>;
-  executeDelete(fileIds: number[]): Promise<DeleteProgress>;
+  previewDelete(fileIds: number[], folderPaths?: string[]): Promise<DeletePreview>;
+  executeDelete(fileIds: number[], folderPaths?: string[]): Promise<DeleteProgress>;
   cancelDelete(): Promise<DeleteProgress>;
   getRecycleStatus(): Promise<RecycleStatus>;
   getLongTrash(): Promise<LongTrashStatus>;

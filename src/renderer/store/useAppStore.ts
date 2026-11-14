@@ -96,6 +96,7 @@ interface AppState {
   deleteProgress: DeleteProgress | null;
   deleteResult: DeleteResult | null;
   deleteTargetIds: number[];
+  deleteTargetFolders: string[];
   dataVersion: number;
   recycleStatus: RecycleStatus | null;
 
@@ -123,7 +124,7 @@ interface AppState {
   openInExplorer(path: string): Promise<void>;
   browseToFiles(prefill: Partial<FilesPrefill>): void;
   clearFilesPrefill(): void;
-  requestDelete(fileIds: number[]): Promise<void>;
+  requestDelete(fileIds: number[], folderPaths?: string[]): Promise<void>;
   confirmDelete(): Promise<void>;
   cancelDelete(): Promise<void>;
   closeDeleteResult(): void;
@@ -164,6 +165,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteProgress: null,
   deleteResult: null,
   deleteTargetIds: [],
+  deleteTargetFolders: [],
   dataVersion: 0,
   recycleStatus: null,
 
@@ -373,22 +375,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ filesPrefill: { drive: null, type: null, rootPath: null } });
   },
 
-  async requestDelete(fileIds) {
+  async requestDelete(fileIds, folderPaths = []) {
     const ids = [...new Set(fileIds.filter((id) => Number.isInteger(id) && id > 0))];
-    if (ids.length === 0) return;
-    const recycle = get().recycleStatus;
-    if (recycle && !recycle.available) {
-      set({
-        notice: notice('warning', recycle.reason ?? 'Windows 回收站当前不可用，删除功能已暂停'),
-      });
-      return;
-    }
+    const folders = [...new Set(folderPaths.filter((folder) => folder.trim().length > 0))];
+    if (ids.length === 0 && folders.length === 0) return;
     try {
-      const preview = await window.api.previewDelete(ids);
+      const preview = await window.api.previewDelete(ids, folders);
       set({
         deletePhase: 'preview',
         deletePreview: preview,
         deleteTargetIds: ids,
+        deleteTargetFolders: folders,
         deleteProgress: null,
         deleteResult: null,
       });
@@ -399,19 +396,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   async confirmDelete() {
     const ids = get().deleteTargetIds;
-    if (ids.length === 0) return;
+    const folders = get().deleteTargetFolders;
+    if (ids.length === 0 && folders.length === 0) return;
     set({
       deletePhase: 'running',
       deletePreview: null,
       deleteResult: null,
       deleteProgress: {
         status: 'running',
-        total: ids.length,
+        total: ids.length + folders.length,
         processed: 0,
         succeeded: 0,
         failed: 0,
         bytes: 0,
         quarantined: 0,
+        foldersSucceeded: 0,
+        folderFileCount: 0,
+        folderBytes: 0,
         currentPath: '',
         startedAt: Date.now(),
         finishedAt: null,
@@ -419,7 +420,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
     });
     try {
-      const state = await window.api.executeDelete(ids);
+      const state = await window.api.executeDelete(ids, folders);
       if (state.status === 'running') set({ deleteProgress: state });
     } catch (error) {
       set({
@@ -427,6 +428,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         deleteProgress: null,
         deleteResult: null,
         deleteTargetIds: [],
+        deleteTargetFolders: [],
         notice: notice('error', describeError(error)),
       });
     }
@@ -447,6 +449,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       deleteProgress: null,
       deleteResult: null,
       deleteTargetIds: [],
+      deleteTargetFolders: [],
     });
   },
 
@@ -462,6 +465,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       deleteProgress: event.state,
       deleteResult: event.result,
       deleteTargetIds: [],
+      deleteTargetFolders: [],
       dataVersion: get().dataVersion + 1,
       detailFile: removedDetail ? null : detail,
     });
@@ -491,6 +495,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         deleteProgress: null,
         deleteResult: null,
         deleteTargetIds: [],
+        deleteTargetFolders: [],
         scanState: await window.api.getScanState().catch(() => null),
       });
       await get().refreshOverview(true);

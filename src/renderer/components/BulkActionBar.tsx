@@ -9,13 +9,17 @@ export interface BulkActionBarProps {
   allFiltered: boolean;
   total: number;
   canSelectAll: boolean;
+  folderView?: boolean;
+  folderCount?: number;
+  folderFileCount?: number;
+  showCompress?: boolean;
   deleteDisabled?: boolean;
   deleteHint?: string;
   onSelectAll(): void;
   onClear(): void;
   onDelete(): void;
-  onVideo(): void;
-  onArchive(): void;
+  onVideo?(): void;
+  onArchive?(): void;
   compressDisabled?: boolean;
 }
 
@@ -25,6 +29,10 @@ export default function BulkActionBar({
   allFiltered,
   total,
   canSelectAll,
+  folderView = false,
+  folderCount = 0,
+  folderFileCount = 0,
+  showCompress = true,
   deleteDisabled = false,
   deleteHint,
   onSelectAll,
@@ -38,8 +46,19 @@ export default function BulkActionBar({
     <div className="bulk-bar" role="status">
       <Space size={12} wrap>
         <span className="bulk-summary">
-          已选择 <strong>{formatCount(count)}</strong> 个文件，共{' '}
-          <strong>{formatBytes(bytes)}</strong>
+          {folderView ? (
+            <>
+              已选 <strong>{formatCount(folderCount)}</strong> 个文件夹（共{' '}
+              <strong>{formatCount(folderFileCount)}</strong> 个文件）、
+              <strong>{formatCount(count)}</strong> 个文件，合计{' '}
+              <strong>{formatBytes(bytes)}</strong>
+            </>
+          ) : (
+            <>
+              已选择 <strong>{formatCount(count)}</strong> 个文件，共{' '}
+              <strong>{formatBytes(bytes)}</strong>
+            </>
+          )}
         </span>
         {allFiltered ? <Tag color="blue">全部筛选结果</Tag> : null}
       </Space>
@@ -50,12 +69,16 @@ export default function BulkActionBar({
           </Button>
         ) : null}
         <Button onClick={onClear}>取消选择</Button>
-        <Button disabled={compressDisabled} onClick={onVideo}>
-          压缩视频
-        </Button>
-        <Button disabled={compressDisabled} onClick={onArchive}>
-          压缩打包
-        </Button>
+        {showCompress && onVideo && onArchive ? (
+          <>
+            <Button disabled={compressDisabled} onClick={onVideo}>
+              压缩视频
+            </Button>
+            <Button disabled={compressDisabled} onClick={onArchive}>
+              压缩打包
+            </Button>
+          </>
+        ) : null}
         <Tooltip title={deleteDisabled ? deleteHint : undefined}>
           <span>
             <Button danger icon={<DeleteOutlined />} disabled={deleteDisabled} onClick={onDelete}>

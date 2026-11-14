@@ -131,6 +131,23 @@ export function folderFromSubtree(path: string): FolderFilter | null {
   return trimmed ? { path: trimmed, scope: 'subtree' } : null;
 }
 
+function pathKey(value: string): string {
+  return value.trim().replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+}
+
+export function isSameOrSubPath(child: string, parent: string): boolean {
+  const childKey = pathKey(child);
+  const parentKey = pathKey(parent);
+  if (childKey === parentKey) return true;
+  return childKey.startsWith(`${parentKey}\\`);
+}
+
+export function isStrictSubPath(child: string, parent: string): boolean {
+  const childKey = pathKey(child);
+  const parentKey = pathKey(parent);
+  return childKey !== parentKey && childKey.startsWith(`${parentKey}\\`);
+}
+
 export function typeFilterKey(filters: FilesFilters): string {
   if (filters.view === 'folders') return 'folder';
   return filters.type ?? 'all';

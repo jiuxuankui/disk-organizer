@@ -33,6 +33,13 @@ import {
   selectAllFiltered,
   type FilesSelection,
 } from '../lib/filesSelection';
+import {
+  emptyFolderSelection,
+  folderSelectionTotals,
+  toggleFolderFileSelection,
+  toggleFolderSelection,
+  type FolderSelectionState,
+} from '../lib/folderSelection';
 import { describeError, isScanActive, useAppStore } from '../store/useAppStore';
 
 export default function FilesPage(): React.JSX.Element {
@@ -46,8 +53,8 @@ export default function FilesPage(): React.JSX.Element {
   const requestDelete = useAppStore((state) => state.requestDelete);
   const dataVersion = useAppStore((state) => state.dataVersion);
   const scanState = useAppStore((state) => state.scanState);
+  const deletePhase = useAppStore((state) => state.deletePhase);
   const scanning = isScanActive(scanState);
-  const recycleUnavailable = useAppStore((state) => state.recycleStatus?.available === false);
 
   const scanId = overview?.scan?.id ?? null;
   const [filters, setFilters] = useState<FilesFilters>(() => filtersFromPrefill(prefill));
@@ -56,6 +63,8 @@ export default function FilesPage(): React.JSX.Element {
   const [sort, setSort] = useState<FileSort>(DEFAULT_FILE_SORT);
   const [firstLevelFolders, setFirstLevelFolders] = useState<FolderFacet[]>([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
+  const [folderSelection, setFolderSelection] =
+    useState<FolderSelectionState>(emptyFolderSelection);
   const [items, setItems] = useState<FileRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
@@ -260,9 +269,9 @@ export default function FilesPage(): React.JSX.Element {
     setSelection(clearSelection());
   };
 
-  const loadChildFolders = useCallback(
-    (parentDir: string): Promise<FolderFacet[]> =>
-      window.api.listFileFolders({
+  const loadFolderContents = useCallback(
+    (parentDir: string) =>
+      window.api.listFolderContents({
         parentDir,
         drive: null,
         search: search || undefined,
@@ -274,13 +283,47 @@ export default function FilesPage(): React.JSX.Element {
     [search, filters.minSize, filters.maxSize, filters.mtimeFrom, filters.mtimeTo],
   );
 
+  const clearFolderSelection = useCallback((): void => {
+    setFolderSelection(emptyFolderSelection());
+  }, []);
+
+  const toggleFolder = (folder: FolderFacet, checked: boolean): void => {
+    setFolderSelection((current) => toggleFolderSelection(current, folder, checked));
+  };
+
+  const toggleFile = (file: FileRecord, checked: boolean): void => {
+    setFolderSelection((current) => toggleFolderFileSelection(current, file, checked));
+  };
+
+  useEffect(() => {
+    clearFolderSelection();
+  }, [
+    clearFolderSelection,
+    filters.view,
+    filters.drive,
+    filters.minSize,
+    filters.maxSize,
+    filters.mtimeFrom,
+    filters.mtimeTo,
+    search,
+    dataVersion,
+  ]);
+
   const filtered = hasActiveFilters(filters, search);
   const selectedTotal = selectedCount(selection, total);
   const selectedSize = selectedBytes(selection, items, totalBytes);
   const showSelectAll = canSelectAllFiltered(selection, total);
+  const folderTotals = folderSelectionTotals(folderSelection);
+  const folderDeleteDisabled = scanning || deletePhase === 'running';
+  const folderDeleteHint = scanning
+    ? '扫描完成后可删除'
+    : deletePhase === 'running'
+      ? '删除进行中，请等待完成'
+      : undefined;
+  const hasFolderSelection = folderTotals.folderCount > 0 || folderTotals.fileCount > 0;
 
   const handleDelete = async (): Promise<void> => {
-    if (scanning || recycleUnavailable) return;
+    if (scanning) return;
     try {
       const ids =
         selection.mode === 'all'
@@ -387,8 +430,13 @@ export default function FilesPage(): React.JSX.Element {
             <FolderTable
               folders={firstLevelFolders}
               loading={foldersLoading}
+              selectedFolders={new Set(folderSelection.folders.keys())}
+              selectedFiles={new Set(folderSelection.files.keys())}
+              onToggleFolder={toggleFolder}
+              onToggleFile={toggleFile}
               onEnter={enterFolder}
-              loadChildren={loadChildFolders}
+              onOpenFile={openDetail}
+              loadContents={loadFolderContents}
             />
           </>
         ) : (
@@ -439,8 +487,31 @@ export default function FilesPage(): React.JSX.Element {
           onVideo={() => void handleCompress('video')}
           onArchive={() => void handleCompress('archive')}
           compressDisabled={scanning || preparing}
-          deleteDisabled={scanning || recycleUnavailable}
-          deleteHint={scanning ? '扫描完成后可删除文件' : COPY.recycleBinUnavailable}
+          deleteDisabled={scanning || deletePhase === 'running'}
+          deleteHint={scanning ? '扫描完成后可删除文件' : '删除进行中，请等待完成'}
+        />
+      ) : null}
+      {filters.view === 'folders' && hasFolderSelection ? (
+        <BulkActionBar
+          folderView
+          showCompress={false}
+          folderCount={folderTotals.folderCount}
+          folderFileCount={folderTotals.folderFileCount}
+          count={folderTotals.fileCount}
+          bytes={folderTotals.totalBytes}
+          allFiltered={false}
+          total={0}
+          canSelectAll={false}
+          deleteDisabled={folderDeleteDisabled}
+          deleteHint={folderDeleteHint}
+          onSelectAll={() => undefined}
+          onClear={clearFolderSelection}
+          onDelete={() =>
+            void requestDelete(
+              [...folderSelection.files.keys()],
+              [...folderSelection.folders.keys()],
+            )
+          }
         />
       ) : null}
       {archiveIds ? (

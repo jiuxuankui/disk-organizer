@@ -113,13 +113,18 @@ describe('IPC validation schemas', () => {
 
   it('validates delete payloads', () => {
     expect(deleteFilesSchema.parse({ fileIds: [1, 2, 2] }).fileIds).toEqual([1, 2, 2]);
+    expect(deleteFilesSchema.parse({ fileIds: [1] }).folderPaths).toEqual([]);
+    expect(deleteFilesSchema.parse({ folderPaths: ['D:\\归档'] }).fileIds).toEqual([]);
     expect(() => parseIpc(deleteFilesSchema, { fileIds: [] }, '删除预览')).toThrow(
-      /至少选择一个文件/,
+      /至少选择一个项目/,
     );
+    expect(() => parseIpc(deleteFilesSchema, {}, '删除预览')).toThrow(/至少选择一个项目/);
     expect(() => deleteFilesSchema.parse({ fileIds: [0] })).toThrow();
     expect(() => deleteFilesSchema.parse({ fileIds: [1.5] })).toThrow();
     expect(() => deleteFilesSchema.parse({ fileIds: [1], extra: true })).toThrow();
     expect(() => deleteFilesSchema.parse({ fileIds: ['1'] })).toThrow();
+    expect(() => deleteFilesSchema.parse({ folderPaths: ['relative'] })).toThrow();
+    expect(() => deleteFilesSchema.parse({ folderPaths: ['C:\\a\\b\\'] })).not.toThrow();
   });
 
   it('validates settings updates', () => {

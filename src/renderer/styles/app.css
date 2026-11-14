@@ -227,6 +227,16 @@
   cursor: pointer;
 }
 
+.folder-table .folder-file-row {
+  cursor: pointer;
+}
+
+.folder-file-icon {
+  display: inline-block;
+  width: 20px;
+  flex: none;
+}
+
 .folder-table .folder-hint-row .ant-table-cell {
   background: transparent;
 }

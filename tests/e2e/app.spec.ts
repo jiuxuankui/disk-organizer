@@ -160,7 +160,9 @@ test('全部文件页支持筛选、搜索和详情抽屉', async () => {
   await page.getByRole('button', { name: '展开 docs', exact: true }).click();
   await expect(folderRows.filter({ hasText: '2024' })).toHaveCount(1);
   await page.getByRole('button', { name: '展开 2024', exact: true }).click();
-  await expect(page.locator('.folder-table').getByText('没有子文件夹')).toBeVisible();
+  await expect(
+    page.locator('.folder-table .folder-file-row').filter({ hasText: 'q1.txt' }),
+  ).toHaveCount(1);
 
   await folderRows.filter({ hasText: 'photos' }).locator('.folder-name-text').click();
   await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(3);

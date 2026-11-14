@@ -1,41 +1,66 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Empty, Table, Typography } from 'antd';
+import { Checkbox, Empty, Table, Typography } from 'antd';
 import type { TableProps } from 'antd';
 import { CaretRightOutlined } from '@ant-design/icons';
-import type { FolderFacet } from '@shared/types';
-import { formatBytes, formatCount } from '@shared/format';
+import type { FileRecord, FolderContents, FolderFacet } from '@shared/types';
+import { formatBytes, formatCount, formatDateTime } from '@shared/format';
+import { fileTypeLabel } from '@shared/fileTypes';
+import { isSameOrSubPath, isStrictSubPath } from '../lib/filesFilter';
 
 export interface FolderTableProps {
   folders: FolderFacet[];
   loading: boolean;
+  selectedFolders: Set<string>;
+  selectedFiles: Set<number>;
+  onToggleFolder(folder: FolderFacet, checked: boolean): void;
+  onToggleFile(file: FileRecord, checked: boolean): void;
   onEnter(folder: FolderFacet): void;
-  loadChildren(parentDir: string): Promise<FolderFacet[]>;
+  onOpenFile(file: FileRecord): void;
+  loadContents(parentDir: string): Promise<FolderContents>;
 }
 
 type FolderRow =
-  | { kind: 'folder'; key: string; node: FolderFacet; depth: number; expanded: boolean }
-  | { kind: 'empty'; key: string; depth: number }
-  | { kind: 'loading'; key: string; depth: number };
+  | {
+      kind: 'folder';
+      key: string;
+      node: FolderFacet;
+      depth: number;
+      expanded: boolean;
+      disabled: boolean;
+    }
+  | { kind: 'file'; key: string; file: FileRecord; depth: number; disabled: boolean }
+  | { kind: 'hint'; key: string; parent: string; depth: number; totalFiles: number }
+  | { kind: 'loading'; key: string; parent: string; depth: number }
+  | { kind: 'empty'; key: string; parent: string; depth: number };
 
 const INDENT = 20;
+const isMessageRow = (row: FolderRow): boolean =>
+  row.kind === 'hint' || row.kind === 'loading' || row.kind === 'empty';
 
 export default function FolderTable({
   folders,
   loading,
+  selectedFolders,
+  selectedFiles,
+  onToggleFolder,
+  onToggleFile,
   onEnter,
-  loadChildren,
+  onOpenFile,
+  loadContents,
 }: FolderTableProps): React.JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const [children, setChildren] = useState<Map<string, FolderFacet[]>>(() => new Map());
+  const [contents, setContents] = useState<Map<string, FolderContents>>(() => new Map());
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set());
   const requestRef = useRef(0);
 
   useEffect(() => {
     requestRef.current += 1;
     setExpanded(new Set());
-    setChildren(new Map());
+    setContents(new Map());
     setLoadingPaths(new Set());
   }, [folders]);
+
+  const selectedFolderPaths = useMemo(() => [...selectedFolders], [selectedFolders]);
 
   const toggle = async (folder: FolderFacet): Promise<void> => {
     const key = folder.path;
@@ -48,16 +73,18 @@ export default function FolderTable({
       return;
     }
     setExpanded((current) => new Set(current).add(key));
-    if (children.has(key) || loadingPaths.has(key)) return;
+    if (contents.has(key) || loadingPaths.has(key)) return;
     const sequence = requestRef.current;
     setLoadingPaths((current) => new Set(current).add(key));
     try {
-      const result = await loadChildren(folder.path);
+      const result = await loadContents(key);
       if (sequence !== requestRef.current) return;
-      setChildren((current) => new Map(current).set(key, result));
+      setContents((current) => new Map(current).set(key, result));
     } catch {
       if (sequence === requestRef.current) {
-        setChildren((current) => new Map(current).set(key, []));
+        setContents((current) =>
+          new Map(current).set(key, { folders: [], files: [], totalFiles: 0 }),
+        );
       }
     } finally {
       if (sequence === requestRef.current) {
@@ -71,37 +98,124 @@ export default function FolderTable({
   };
 
   const rows = useMemo(() => {
+    const isCoveredFolder = (path: string): boolean =>
+      selectedFolderPaths.some((folder) => isStrictSubPath(path, folder));
+    const isCoveredFile = (path: string): boolean =>
+      selectedFolderPaths.some((folder) => isSameOrSubPath(path, folder));
     const result: FolderRow[] = [];
     const walk = (nodes: FolderFacet[], depth: number): void => {
       for (const node of nodes) {
         const isExpanded = expanded.has(node.path);
-        result.push({ kind: 'folder', key: node.path, node, depth, expanded: isExpanded });
+        result.push({
+          kind: 'folder',
+          key: node.path,
+          node,
+          depth,
+          expanded: isExpanded,
+          disabled: isCoveredFolder(node.path),
+        });
         if (!isExpanded) continue;
-        const loaded = children.get(node.path);
+        const loaded = contents.get(node.path);
         if (loaded === undefined) {
-          result.push({ kind: 'loading', key: `${node.path}#loading`, depth: depth + 1 });
-        } else if (loaded.length === 0) {
-          result.push({ kind: 'empty', key: `${node.path}#empty`, depth: depth + 1 });
-        } else {
-          walk(loaded, depth + 1);
+          result.push({
+            kind: 'loading',
+            key: `${node.path}#loading`,
+            parent: node.path,
+            depth: depth + 1,
+          });
+          continue;
+        }
+        if (loaded.folders.length === 0 && loaded.files.length === 0) {
+          result.push({
+            kind: 'empty',
+            key: `${node.path}#empty`,
+            parent: node.path,
+            depth: depth + 1,
+          });
+          continue;
+        }
+        walk(loaded.folders, depth + 1);
+        for (const file of loaded.files) {
+          result.push({
+            kind: 'file',
+            key: `file:${file.id}`,
+            file,
+            depth: depth + 1,
+            disabled: isCoveredFile(file.path),
+          });
+        }
+        if (loaded.totalFiles > loaded.files.length) {
+          result.push({
+            kind: 'hint',
+            key: `${node.path}#hint`,
+            parent: node.path,
+            depth: depth + 1,
+            totalFiles: loaded.totalFiles,
+          });
         }
       }
     };
     walk(folders, 0);
     return result;
-  }, [folders, expanded, children]);
+  }, [folders, expanded, contents, selectedFolderPaths]);
 
   const columns: NonNullable<TableProps<FolderRow>['columns']> = [
     {
+      key: 'select',
+      width: 44,
+      onCell: (row) => (isMessageRow(row) ? { colSpan: 0 } : {}),
+      render: (_value, row) => {
+        if (row.kind === 'folder') {
+          return (
+            <Checkbox
+              aria-label={`选择文件夹 ${row.node.name}`}
+              checked={selectedFolders.has(row.node.path)}
+              disabled={row.disabled}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => onToggleFolder(row.node, event.target.checked)}
+            />
+          );
+        }
+        if (row.kind === 'file') {
+          return (
+            <Checkbox
+              aria-label={`选择文件 ${row.file.name}`}
+              checked={selectedFiles.has(row.file.id)}
+              disabled={row.disabled}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => onToggleFile(row.file, event.target.checked)}
+            />
+          );
+        }
+        return null;
+      },
+    },
+    {
       title: '名称',
       key: 'name',
+      onCell: (row) => (isMessageRow(row) ? { colSpan: 5 } : {}),
       render: (_value, row) => {
         const indent = { paddingLeft: row.depth * INDENT };
-        if (row.kind !== 'folder') {
+        if (row.kind === 'hint') {
           return (
             <Typography.Text type="secondary" style={indent}>
-              {row.kind === 'loading' ? '加载中…' : '没有子文件夹'}
+              共 {formatCount(row.totalFiles)} 个文件，进入文件夹查看全部
             </Typography.Text>
+          );
+        }
+        if (row.kind === 'loading' || row.kind === 'empty') {
+          return (
+            <Typography.Text type="secondary" style={indent}>
+              {row.kind === 'loading' ? '加载中…' : '没有子文件夹或文件'}
+            </Typography.Text>
+          );
+        }
+        if (row.kind === 'file') {
+          return (
+            <span className="folder-name" style={indent}>
+              <span className="folder-file-icon" aria-hidden />
+              <span className="folder-name-text">{row.file.name}</span>
+            </span>
           );
         }
         return (
@@ -124,30 +238,46 @@ export default function FolderTable({
       },
     },
     {
-      title: '路径',
+      title: '路径 / 类型',
       key: 'path',
-      width: 360,
+      width: 320,
       ellipsis: { showTitle: true },
-      render: (_value, row) =>
-        row.kind === 'folder' ? (
-          <Typography.Text type="secondary" ellipsis={{ tooltip: row.node.path }}>
-            {row.node.path}
-          </Typography.Text>
-        ) : null,
+      onCell: (row) => (isMessageRow(row) ? { colSpan: 0 } : {}),
+      render: (_value, row) => {
+        if (row.kind === 'folder') {
+          return (
+            <Typography.Text type="secondary" ellipsis={{ tooltip: row.node.path }}>
+              {row.node.path}
+            </Typography.Text>
+          );
+        }
+        if (row.kind === 'file') return fileTypeLabel(row.file.type);
+        return null;
+      },
     },
     {
-      title: '文件数',
+      title: '文件数 / 大小',
       key: 'count',
-      width: 100,
+      width: 120,
       align: 'right',
-      render: (_value, row) => (row.kind === 'folder' ? formatCount(row.node.count) : null),
+      onCell: (row) => (isMessageRow(row) ? { colSpan: 0 } : {}),
+      render: (_value, row) => {
+        if (row.kind === 'folder') return formatCount(row.node.count);
+        if (row.kind === 'file') return formatBytes(row.file.size);
+        return null;
+      },
     },
     {
-      title: '大小',
+      title: '大小 / 修改时间',
       key: 'bytes',
-      width: 110,
+      width: 150,
       align: 'right',
-      render: (_value, row) => (row.kind === 'folder' ? formatBytes(row.node.bytes) : null),
+      onCell: (row) => (isMessageRow(row) ? { colSpan: 0 } : {}),
+      render: (_value, row) => {
+        if (row.kind === 'folder') return formatBytes(row.node.bytes);
+        if (row.kind === 'file') return formatDateTime(row.file.mtimeMs);
+        return null;
+      },
     },
   ];
 
@@ -161,11 +291,18 @@ export default function FolderTable({
       dataSource={rows}
       loading={loading}
       pagination={false}
-      scroll={{ x: 700 }}
-      rowClassName={(row) => (row.kind === 'folder' ? 'folder-row' : 'folder-hint-row')}
+      scroll={{ x: 720 }}
+      rowClassName={(row) =>
+        row.kind === 'folder'
+          ? 'folder-row'
+          : row.kind === 'file'
+            ? 'folder-file-row'
+            : 'folder-hint-row'
+      }
       onRow={(row) => ({
         onClick: () => {
           if (row.kind === 'folder') onEnter(row.node);
+          else if (row.kind === 'file') onOpenFile(row.file);
         },
       })}
       locale={{

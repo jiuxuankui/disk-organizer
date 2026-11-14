@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { normalizePathKey } from '../services/filesystem';
 
 export interface DeleteFileRow {
   id: number;
@@ -7,6 +8,11 @@ export interface DeleteFileRow {
   path_key: string;
   name: string;
   size: number;
+}
+
+export interface FolderStats {
+  bytes: number;
+  count: number;
 }
 
 function chunked<T>(items: T[], size = 500): T[][] {
@@ -62,6 +68,56 @@ export function applyDeletedFileRows(
        WHERE id = ?`,
     ).run(removedBytes, deleted.length, scanId);
 
+    db.exec('COMMIT');
+  } catch (error) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // Transaction may already be rolled back.
+    }
+    throw error;
+  }
+}
+
+function folderPrefix(folderPath: string): string {
+  const base = normalizePathKey(folderPath);
+  return base.endsWith('\\') ? base : `${base}\\`;
+}
+
+export function folderStats(db: DatabaseSync, scanId: number, folderPath: string): FolderStats {
+  const prefix = folderPrefix(folderPath);
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(size), 0) AS bytes, COUNT(*) AS count
+       FROM files WHERE scan_id = ? AND substr(path_key, 1, ?) = ?`,
+    )
+    .get(scanId, prefix.length, prefix) as unknown as FolderStats;
+  return { bytes: row?.bytes ?? 0, count: row?.count ?? 0 };
+}
+
+export function applyDeletedFolders(db: DatabaseSync, scanId: number, folders: string[]): void {
+  if (folders.length === 0) return;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const folder of folders) {
+      const prefix = folderPrefix(folder);
+      db.prepare('DELETE FROM files WHERE scan_id = ? AND substr(path_key, 1, ?) = ?').run(
+        scanId,
+        prefix.length,
+        prefix,
+      );
+    }
+    const totals = db
+      .prepare(
+        `SELECT COUNT(*) AS count, COALESCE(SUM(size), 0) AS bytes
+         FROM files WHERE scan_id = ?`,
+      )
+      .get(scanId) as { count: number; bytes: number };
+    db.prepare('UPDATE scans SET total_files = ?, identified_bytes = ? WHERE id = ?').run(
+      totals.count,
+      totals.bytes,
+      scanId,
+    );
     db.exec('COMMIT');
   } catch (error) {
     try {

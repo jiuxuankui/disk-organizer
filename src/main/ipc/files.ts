@@ -3,11 +3,18 @@ import { IPC } from '@shared/ipcChannels';
 import type {
   FileQuery,
   FileRecord,
+  FolderContents,
   FolderFacet,
   IndexSyncResult,
   PagedResult,
 } from '@shared/types';
-import { getFileById, listFolders, queryFileIds, queryFiles } from '../db/filesRepo';
+import {
+  getFileById,
+  listFolderContents,
+  listFolders,
+  queryFileIds,
+  queryFiles,
+} from '../db/filesRepo';
 import { getActiveScanId } from '../db/scansRepo';
 import type { IpcContext } from './context';
 import { fileIdSchema, fileQuerySchema, folderQuerySchema, parseIpc } from './schemas';
@@ -49,6 +56,13 @@ export function registerFilesIpc(ctx: IpcContext): void {
     const scanId = getActiveScanId(ctx.db);
     if (scanId === null) return [];
     return listFolders(ctx.db, scanId, query);
+  });
+
+  ipcMain.handle(IPC.filesFolderContents, (_event, raw: unknown): FolderContents => {
+    const query = parseIpc(folderQuerySchema, raw, '文件夹内容');
+    const scanId = getActiveScanId(ctx.db);
+    if (scanId === null) return { folders: [], files: [], totalFiles: 0 };
+    return listFolderContents(ctx.db, scanId, query);
   });
 
   ipcMain.handle(IPC.filesSyncIndex, (): Promise<IndexSyncResult> => ctx.indexSync.sync());

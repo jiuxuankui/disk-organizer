@@ -112,10 +112,12 @@ export const deleteFilesSchema = z
   .object({
     fileIds: z
       .array(z.number().int().positive())
-      .min(1, '请至少选择一个文件')
-      .max(200_000, '一次最多处理 200000 个文件'),
+      .max(200_000, '一次最多处理 200000 个文件')
+      .default([]),
+    folderPaths: z.array(localOrganizePath).max(1000, '一次最多处理 1000 个文件夹').default([]),
   })
-  .strict();
+  .strict()
+  .refine((value) => value.fileIds.length + value.folderPaths.length > 0, '请至少选择一个项目');
 
 export const longTrashIdSchema = z
   .object({

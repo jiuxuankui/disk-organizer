@@ -3,6 +3,7 @@ import type {
   FileQuery,
   FileRecord,
   FileTypeKey,
+  FolderContents,
   FolderFacet,
   FolderQuery,
   PagedResult,
@@ -253,6 +254,33 @@ export function listFolders(db: DatabaseSync, scanId: number, query: FolderQuery
     bytes: row.bytes,
     count: row.count,
   }));
+}
+
+export function listFolderContents(
+  db: DatabaseSync,
+  scanId: number,
+  query: FolderQuery,
+  limit = 200,
+): FolderContents {
+  if (!query.parentDir) return { folders: [], files: [], totalFiles: 0 };
+  const folders = listFolders(db, scanId, query);
+  const conditions = ['scan_id = ?', 'dir_key = ?'];
+  const params: Array<string | number> = [scanId, normalizePathKey(query.parentDir)];
+  pushValueFilters(query, conditions, params);
+  const where = conditions.join(' AND ');
+  const total = db.prepare(`SELECT COUNT(*) AS count FROM files WHERE ${where}`).get(...params) as {
+    count: number;
+  };
+  const rows = db
+    .prepare(
+      `SELECT id, drive, path, name, ext, type, size, mtime_ms, ctime_ms, root_dir, dir_path
+       FROM files
+       WHERE ${where}
+       ORDER BY name_key ASC
+       LIMIT ?`,
+    )
+    .all(...params, Math.min(200, Math.max(1, limit))) as unknown as FileRow[];
+  return { folders, files: rows.map(mapFileRow), totalFiles: total.count };
 }
 
 export function getFileById(db: DatabaseSync, scanId: number, fileId: number): FileRecord | null {
