@@ -156,22 +156,12 @@ async function main() {
   const driveFilter = summarize(await measureIpc(page, { ...baseQuery, drive: 'C:' }));
   const typeFilter = summarize(await measureIpc(page, { ...baseQuery, type: 'document' }));
   const sizeFilter = summarize(await measureIpc(page, { ...baseQuery, minSize: 1024 * 1024 }));
-  const searchFilter = summarize(await measureIpc(page, { ...baseQuery, search: 'dup-000' }));
+  const searchFilter = summarize(await measureIpc(page, { ...baseQuery, search: 'f000' }));
   const deepPage = summarize(
     await measureIpc(page, { ...baseQuery, page: 501, pageSize: 200 }, 3),
   );
   const filesMemory = await memoryMb(app);
 
-  await page.locator('.app-nav').getByText('重复文件', { exact: true }).click();
-  const duplicateStartedAt = performance.now();
-  await page
-    .locator('.duplicates-page button')
-    .filter({ hasText: '开始查找' })
-    .first()
-    .click();
-  await page.waitForSelector('.dup-summary', { timeout: 900000 });
-  const duplicateMs = performance.now() - duplicateStartedAt;
-  const duplicateText = (await page.locator('.dup-summary').textContent()) ?? '';
   const peakMemory = await memoryMb(app);
 
   const appInfo = await page.evaluate(() => window.api.getAppInfo());
@@ -188,8 +178,6 @@ async function main() {
     sizeFilter,
     searchFilter,
     deepPage,
-    duplicateMs,
-    duplicateText: duplicateText.replace(/\s+/g, ' ').trim(),
     rendererMaxMs: rendererLatencies.length > 0 ? Math.max(...rendererLatencies) : 0,
     memoryMb: { afterScan: scanMemory, filesPage: filesMemory, peak: peakMemory },
     filesIndexed: overview?.scan?.totalFiles ?? 0,
@@ -222,7 +210,6 @@ async function main() {
     '',
     `- 索引文件：${metrics.filesIndexed.toLocaleString('zh-CN')} 个`,
     `- 扫描发现：${metrics.scanFound.toLocaleString('zh-CN')} 个`,
-    `- 重复文件：1000 个 × 2MB（数据由 scripts/perf-seed.mjs 生成）`,
     `- 数据库大小：${(metrics.dbBytes / 1024 / 1024).toFixed(1)} MB`,
     '',
     '## 结果',
@@ -239,10 +226,7 @@ async function main() {
     `| 搜索最大耗时 | ${metrics.searchFilter.max.toFixed(0)}ms | ≤ 1000ms | ${metrics.searchFilter.max <= 1000 ? '通过' : '未通过'} |`,
     `| 深分页（第 501 页） | ${metrics.deepPage.max.toFixed(0)}ms | ≤ 300ms | ${metrics.deepPage.max <= 300 ? '通过' : '未通过'} |`,
     `| 扫描期间渲染进程最大响应 | ${metrics.rendererMaxMs.toFixed(0)}ms | ≤ 500ms | ${metrics.rendererMaxMs <= 500 ? '通过' : '未通过'} |`,
-    `| 重复文件查找（1000×2MB） | ${(metrics.duplicateMs / 1000).toFixed(1)}s | 记录 | — |`,
     `| 内存（扫描后/文件页/峰值） | ${metrics.memoryMb.afterScan.toFixed(0)} / ${metrics.memoryMb.filesPage.toFixed(0)} / ${metrics.memoryMb.peak.toFixed(0)} MB | 记录 | — |`,
-    '',
-    '重复文件结果：' + metrics.duplicateText,
     '',
     '## 结论',
     '',

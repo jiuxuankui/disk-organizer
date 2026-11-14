@@ -14,8 +14,6 @@ import {
   getScanSummary,
   listOtherScanIds,
   listRunningScanIds,
-  markOtherDuplicateRunsStale,
-  pruneHashCache,
   setActiveScanId,
   setMeta,
   updateScanStatus,
@@ -309,7 +307,6 @@ export class ScanService {
         });
         setActiveScanId(this.db, scanId);
         setMeta(this.db, 'last_scan_finished_at', String(finishedAt));
-        markOtherDuplicateRunsStale(this.db, scanId);
         this.db.exec('COMMIT');
       } catch (error) {
         try {
@@ -460,7 +457,6 @@ export class ScanService {
     for (const scanId of others) {
       deleteScanData(this.db, scanId);
     }
-    pruneHashCache(this.db, activeScanId);
   }
 
   recover(): { recoveredRunning: number[]; activeScanId: number | null } {
@@ -485,22 +481,12 @@ export class ScanService {
     }
 
     if (activeScanId !== null) {
-      try {
-        markOtherDuplicateRunsStale(this.db, activeScanId);
-      } catch {
-        // Stale markers are cosmetic; snapshot cleanup still matters more.
-      }
       for (const scanId of listOtherScanIds(this.db, activeScanId)) {
         try {
           deleteScanData(this.db, scanId);
         } catch {
           // Recovery continues with the next snapshot.
         }
-      }
-      try {
-        pruneHashCache(this.db, activeScanId);
-      } catch {
-        // Cache pruning can be retried on the next start.
       }
     }
 

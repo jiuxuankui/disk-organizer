@@ -44,13 +44,6 @@ export const IPC = {
   filesFacets: 'files:facets',
   filesSyncIndex: 'files:sync-index',
 
-  duplicatesState: 'duplicates:state',
-  duplicatesStart: 'duplicates:start',
-  duplicatesCancel: 'duplicates:cancel',
-  duplicatesGroups: 'duplicates:groups',
-  duplicatesMembers: 'duplicates:members',
-  duplicatesEvent: 'duplicates:event',
-
   deletePreview: 'delete:preview',
   deleteExecute: 'delete:execute',
   deleteCancel: 'delete:cancel',

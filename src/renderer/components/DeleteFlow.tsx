@@ -1,6 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Alert, Button, Checkbox, List, Modal, Progress, Space, Typography } from 'antd';
-import type { DeletePreview } from '@shared/types';
+import { useMemo } from 'react';
+import { Alert, Button, List, Modal, Progress, Space, Typography } from 'antd';
 import { COPY } from '@shared/copy';
 import { formatBytes, formatCount } from '@shared/format';
 import { useAppStore } from '../store/useAppStore';
@@ -17,14 +16,10 @@ export default function DeleteFlow(): React.JSX.Element {
   const setPage = useAppStore((state) => state.setPage);
   const pushNotice = useAppStore((state) => state.pushNotice);
 
-  const [wholeConfirmedFor, setWholeConfirmedFor] = useState<DeletePreview | null>(null);
-  const wholeConfirmed = preview !== null && wholeConfirmedFor === preview;
   useBackClose(phase === 'preview', closeDeleteResult);
   useBackClose(phase === 'result', closeDeleteResult);
 
-  const requireWholeConfirm = (preview?.groupsAllDeleted ?? 0) > 0;
-  const canConfirm =
-    Boolean(preview?.canDelete) && (!requireWholeConfirm || wholeConfirmed);
+  const canConfirm = Boolean(preview?.canDelete);
 
   const blockedMessage = useMemo(() => {
     if (!preview || preview.blockedCount === 0) return null;
@@ -117,23 +112,6 @@ export default function DeleteFlow(): React.JSX.Element {
             ) : null}
             {blockedMessage ? (
               <Alert type="warning" showIcon message={blockedMessage} />
-            ) : null}
-            {requireWholeConfirm ? (
-              <Alert
-                type="error"
-                showIcon
-                message={`${preview.groupsAllDeleted} 个重复组的所有副本都在待删列表中`}
-                description={
-                  <Checkbox
-                    checked={wholeConfirmed}
-                    onChange={(event) =>
-                      setWholeConfirmedFor(event.target.checked ? preview : null)
-                    }
-                  >
-                    我确认这些文件都不需要保留
-                  </Checkbox>
-                }
-              />
             ) : null}
             {!preview.canDelete ? (
               <Alert type="info" showIcon message="当前没有可以安全移到回收站的文件" />

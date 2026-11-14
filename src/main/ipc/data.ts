@@ -11,7 +11,6 @@ function ensureIdle(ctx: IpcContext, label: string): void {
   if (ctx.archive.isRunning()) throw new Error(`压缩打包进行中，请完成或取消后再${label}`);
   if (ctx.video.isRunning()) throw new Error(`视频压缩进行中，完成或取消后再${label}`);
   if (ctx.scan.isBusy()) throw new Error(`扫描进行中，完成后再${label}`);
-  if (ctx.duplicates.isRunning()) throw new Error(`重复文件查找进行中，完成或取消后再${label}`);
   if (ctx.deleteService.isRunning()) throw new Error(`删除进行中，完成后再${label}`);
 }
 

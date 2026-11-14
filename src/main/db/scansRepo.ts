@@ -164,33 +164,6 @@ export function deleteScanData(db: DatabaseSync, scanId: number, batchSize = 500
   }
 }
 
-export function markOtherDuplicateRunsStale(db: DatabaseSync, activeScanId: number): void {
-  db.prepare(
-    `UPDATE duplicate_runs
-     SET status = 'stale', total_groups = 0, total_files = 0, reclaimable_bytes = 0
-     WHERE scan_id != ?`,
-  ).run(activeScanId);
-  db.prepare(
-    'DELETE FROM duplicate_groups WHERE run_id IN (SELECT id FROM duplicate_runs WHERE scan_id != ?)',
-  ).run(activeScanId);
-}
-
-export function pruneHashCache(db: DatabaseSync, activeScanId: number): number {
-  const result = db
-    .prepare(
-      `DELETE FROM hash_cache
-       WHERE NOT EXISTS (
-         SELECT 1 FROM files f
-         WHERE f.scan_id = ?
-           AND f.path_key = hash_cache.path_key
-           AND f.size = hash_cache.size
-           AND f.mtime_ms = hash_cache.mtime_ms
-       )`,
-    )
-    .run(activeScanId);
-  return Number(result.changes);
-}
-
 export function listRunningScanIds(db: DatabaseSync): number[] {
   return (db.prepare("SELECT id FROM scans WHERE status = 'running'").all() as Array<{ id: number }>).map(
     (row) => row.id,

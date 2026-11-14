@@ -11,8 +11,7 @@ import type {
 import { evaluateRecycleDecision, type RecycleBinPolicy } from './recycleBinService';
 import { LONG_PATH_LIMIT } from './longTrashService';
 import { getDriveLetter, toExtendedPath } from './filesystem';
-import { applyDeletedFileRows, countAllDeletedGroups, listDeleteFileRows } from '../db/deleteRepo';
-import { getLatestDuplicateRun } from '../db/duplicatesRepo';
+import { applyDeletedFileRows, listDeleteFileRows } from '../db/deleteRepo';
 import { getActiveScanId } from '../db/scansRepo';
 
 interface PlannedFile {
@@ -230,15 +229,6 @@ export class DeleteService {
     const blocked = planned.filter(
       (item) => item.status === 'trashUnavailable' || item.status === 'tooLarge',
     );
-    const run = getLatestDuplicateRun(this.db);
-    const groupsAllDeleted =
-      run && run.status === 'completed'
-        ? countAllDeletedGroups(
-            this.db,
-            run.id,
-            planned.map((item) => item.id),
-          )
-        : 0;
     const recycleBlocked = blocked.filter((item) => item.status === 'trashUnavailable');
     return {
       total: planned.length,
@@ -251,7 +241,6 @@ export class DeleteService {
       previewNames: (ok.length > 0 ? ok : longPath.length > 0 ? longPath : planned)
         .slice(0, PREVIEW_NAME_LIMIT)
         .map((item) => item.name),
-      groupsAllDeleted,
       recycleAvailable: recycleBlocked.length === 0,
       recycleMessage:
         recycleBlocked.length === 0
@@ -355,15 +344,9 @@ export class DeleteService {
 
     if (succeededRows.length > 0) {
       const scanId = getActiveScanId(this.db);
-      const run = getLatestDuplicateRun(this.db);
       try {
         if (scanId !== null) {
-          applyDeletedFileRows(
-            this.db,
-            scanId,
-            run && run.status === 'completed' ? run.id : null,
-            succeededRows,
-          );
+          applyDeletedFileRows(this.db, scanId, succeededRows);
         }
       } catch (error) {
         failures.push({

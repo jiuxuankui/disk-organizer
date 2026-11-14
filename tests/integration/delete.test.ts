@@ -12,8 +12,6 @@ import {
   setActiveScanId,
 } from '../../src/main/db/scansRepo';
 import { normalizePathKey } from '../../src/main/services/filesystem';
-import { DuplicatesService } from '../../src/main/services/duplicatesService';
-import { createInlineHashRunner } from '../../src/main/services/hashRunner';
 import { DeleteService } from '../../src/main/services/deleteService';
 import type { RecycleBinPolicy } from '../../src/main/services/recycleBinService';
 import { createTempDbPath } from './helpers';
@@ -134,14 +132,6 @@ async function seed(): Promise<Seed> {
   });
   setActiveScanId(db, scanId);
 
-  const duplicates = new DuplicatesService({
-    db,
-    getDefaultMinSize: () => 0,
-    runnerFactory: () => createInlineHashRunner(),
-  });
-  duplicates.start();
-  await duplicates.whenIdle();
-
   return { db, scanId, root, files, ids };
 }
 
@@ -205,7 +195,7 @@ async function waitFor(check: () => boolean, timeoutMs = 2000): Promise<void> {
 }
 
 describe('delete preview', () => {
-  it('summarizes deletable files, preview names and fully deleted groups', async () => {
+  it('summarizes deletable files and preview names', async () => {
     const { db, ids, files } = await seed();
     try {
       const service = makeService(db);
@@ -216,7 +206,6 @@ describe('delete preview', () => {
       expect(preview.missingCount).toBe(0);
       expect(preview.blockedCount).toBe(0);
       expect(preview.previewNames).toHaveLength(3);
-      expect(preview.groupsAllDeleted).toBe(1);
       expect(preview.recycleAvailable).toBe(true);
       expect(preview.canDelete).toBe(true);
     } finally {
@@ -231,7 +220,6 @@ describe('delete preview', () => {
       const preview = makeService(db).preview([ids.a, ids.b]);
       expect(preview.missingCount).toBe(1);
       expect(preview.okCount).toBe(1);
-      expect(preview.groupsAllDeleted).toBe(0);
       expect(count(db, 'files')).toBe(4);
     } finally {
       db.close();
@@ -313,7 +301,7 @@ function idsFileOf(fileId: number, db: DatabaseSync): string {
 }
 
 describe('delete execution', () => {
-  it('moves files, updates the index and reconciles duplicate groups', async () => {
+  it('moves files and updates the index', async () => {
     const { db, scanId, ids, files } = await seed();
     try {
       const events: DeleteEvent[] = [];
@@ -325,25 +313,9 @@ describe('delete execution', () => {
       expect(fs.existsSync(files.b.path)).toBe(false);
       expect(fs.existsSync(files.c.path)).toBe(true);
       expect(count(db, 'files')).toBe(3);
-      expect(count(db, 'hash_cache')).toBe(2);
       expect(scanTotals(db, scanId)).toEqual({
         files: before.files - 1,
         bytes: before.bytes - files.b.size,
-      });
-
-      const group = db
-        .prepare('SELECT file_count, reclaimable_bytes FROM duplicate_groups')
-        .get() as { file_count: number; reclaimable_bytes: number };
-      expect(group).toEqual({ file_count: 2, reclaimable_bytes: files.a.size });
-      const run = db
-        .prepare(
-          'SELECT total_groups, total_files, reclaimable_bytes FROM duplicate_runs ORDER BY id DESC LIMIT 1',
-        )
-        .get() as { total_groups: number; total_files: number; reclaimable_bytes: number };
-      expect(run).toEqual({
-        total_groups: 1,
-        total_files: 2,
-        reclaimable_bytes: files.a.size,
       });
 
       const settled = events.filter((event) => event.type === 'settled');
@@ -356,25 +328,6 @@ describe('delete execution', () => {
         expect(settled[0].state.status).toBe('completed');
       }
       expect(service.isRunning()).toBe(false);
-    } finally {
-      db.close();
-    }
-  });
-
-  it('drops groups whose remaining copies fall below two', async () => {
-    const { db, ids } = await seed();
-    try {
-      const service = makeService(db);
-      service.start([ids.a, ids.b, ids.c]);
-      await service.whenIdle();
-      expect(count(db, 'duplicate_groups')).toBe(0);
-      expect(count(db, 'duplicate_members')).toBe(0);
-      const run = db
-        .prepare(
-          'SELECT total_groups, total_files, reclaimable_bytes FROM duplicate_runs ORDER BY id DESC LIMIT 1',
-        )
-        .get() as { total_groups: number; total_files: number; reclaimable_bytes: number };
-      expect(run).toEqual({ total_groups: 0, total_files: 0, reclaimable_bytes: 0 });
     } finally {
       db.close();
     }
@@ -466,24 +419,16 @@ describe('delete execution', () => {
     }
   });
 
-  it('supports deleting a single file without disturbing other groups', async () => {
+  it('supports deleting a single file', async () => {
     const { db, ids, files } = await seed();
     try {
       const service = makeService(db);
-      const preview = service.preview([ids.a]);
-      expect(preview.groupsAllDeleted).toBe(0);
       service.start([ids.a]);
       await service.whenIdle();
-      const group = db
-        .prepare('SELECT file_count, reclaimable_bytes FROM duplicate_groups')
-        .get() as { file_count: number; reclaimable_bytes: number };
-      expect(group).toEqual({ file_count: 2, reclaimable_bytes: files.a.size });
-      const keep = db
-        .prepare(
-          'SELECT path FROM duplicate_members WHERE is_suggested_keep = 1 ORDER BY mtime_ms ASC LIMIT 1',
-        )
-        .get() as { path: string };
-      expect(keep.path).toBe(files.b.path);
+      expect(count(db, 'files')).toBe(3);
+      expect(fs.existsSync(files.a.path)).toBe(false);
+      expect(fs.existsSync(files.b.path)).toBe(true);
+      expect(fs.existsSync(files.c.path)).toBe(true);
     } finally {
       db.close();
     }

@@ -20,7 +20,6 @@ export function registerArchiveIpc(ctx: IpcContext): void {
     if (ctx.organize.isRunning()) throw new Error('文件整理进行中，请完成或停止后再打包');
     if (
       ctx.scan.isBusy() ||
-      ctx.duplicates.isRunning() ||
       ctx.deleteService.isRunning() ||
       ctx.video.isRunning()
     ) {

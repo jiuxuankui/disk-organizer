@@ -32,7 +32,7 @@ function fixture(): Fixture {
   const settingsPath = path.join(dataDir, 'settings.json');
   const backupDir = path.join(dataDir, 'backup');
   fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(settingsPath, JSON.stringify({ minDuplicateSize: 1024 }, null, 2));
+  fs.writeFileSync(settingsPath, JSON.stringify({ autoBackup: true }, null, 2));
   const db = openDatabase(dbPath);
   cleanups.push(() => {
     try {
@@ -185,36 +185,6 @@ describe('backup service', () => {
     }
   });
 
-  it('marks restored duplicate results as stale', async () => {
-    const f = fixture();
-    try {
-      const service = serviceFor(f);
-      f.db
-        .prepare(
-          "INSERT INTO duplicate_runs (scan_id, status, min_size, created_at) VALUES (?, 'completed', 0, 1000)",
-        )
-        .run(f.scanId);
-      const entry = await service.create();
-      f.db.close();
-      service.copyIntoPlace(entry);
-      const restored = openDatabase(f.dbPath);
-      try {
-        const row = restored.prepare('SELECT status FROM duplicate_runs').get() as {
-          status: string;
-        };
-        expect(row.status).toBe('stale');
-      } finally {
-        restored.close();
-      }
-    } finally {
-      try {
-        f.db.close();
-      } catch {
-        // Already closed.
-      }
-    }
-  });
-
   it('restores the database and settings from a backup', async () => {
     const f = fixture();
     try {
@@ -239,9 +209,7 @@ describe('backup service', () => {
       } finally {
         restored.close();
       }
-      expect(JSON.parse(fs.readFileSync(f.settingsPath, 'utf8'))).toEqual({
-        minDuplicateSize: 1024,
-      });
+      expect(JSON.parse(fs.readFileSync(f.settingsPath, 'utf8'))).toEqual({ autoBackup: true });
     } finally {
       try {
         f.db.close();

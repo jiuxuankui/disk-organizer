@@ -209,9 +209,6 @@ export function pruneMissingFiles(db: DatabaseSync, scanId: number, missing: Ind
         scanId,
         ...chunk.map((row) => row.id),
       );
-      db.prepare(`DELETE FROM hash_cache WHERE path_key IN (${placeholders})`).run(
-        ...chunk.map((row) => row.pathKey),
-      );
     }
     const removedBytes = missing.reduce((sum, row) => sum + Math.max(0, row.size), 0);
     db.prepare(

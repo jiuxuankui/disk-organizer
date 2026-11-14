@@ -3,7 +3,6 @@ import {
   copyTextSchema,
   deleteFilesSchema,
   driveQuerySchema,
-  duplicateQuerySchema,
   fileIdSchema,
   fileQuerySchema,
   parseIpc,
@@ -104,25 +103,6 @@ describe('IPC validation schemas', () => {
     expect(() => parseIpc(fileQuerySchema, { page: -2 }, '文件查询')).toThrow(/文件查询参数无效/);
   });
 
-  it('applies safe defaults and bounds to duplicate queries', () => {
-    const parsed = duplicateQuerySchema.parse({});
-    expect(parsed).toMatchObject({
-      minSize: 0,
-      sortBy: 'reclaimable',
-      sortOrder: 'desc',
-      page: 1,
-      pageSize: 20,
-    });
-    expect(duplicateQuerySchema.parse({ drive: 'x', pageSize: 100 }).drive).toBe('X:');
-    expect(() => duplicateQuerySchema.parse({ pageSize: 101 })).toThrow();
-    expect(() => duplicateQuerySchema.parse({ sortBy: 'name' })).toThrow();
-    expect(() => duplicateQuerySchema.parse({ minSize: -1 })).toThrow();
-    expect(() => duplicateQuerySchema.parse({ unexpected: true })).toThrow();
-    expect(() => parseIpc(duplicateQuerySchema, { page: 0 }, '重复文件查询')).toThrow(
-      /重复文件查询参数无效/,
-    );
-  });
-
   it('validates file ids and copied text', () => {
     expect(fileIdSchema.parse({ id: 12 }).id).toBe(12);
     expect(() => fileIdSchema.parse({ id: 0 })).toThrow();
@@ -147,13 +127,11 @@ describe('IPC validation schemas', () => {
       settingsUpdateSchema.parse({
         scanDrives: ['c', 'D:'],
         skipHiddenSystem: false,
-        minDuplicateSize: 10 * 1024 * 1024,
         autoBackup: false,
       }),
     ).toMatchObject({
       scanDrives: ['C:', 'D:'],
       skipHiddenSystem: false,
-      minDuplicateSize: 10 * 1024 * 1024,
       autoBackup: false,
     });
     expect(settingsUpdateSchema.parse({ excludedPaths: ['D:\\Temp'] }).excludedPaths).toEqual([
@@ -162,7 +140,6 @@ describe('IPC validation schemas', () => {
     expect(() => parseIpc(settingsUpdateSchema, {}, '保存设置')).toThrow(/没有需要保存的设置/);
     expect(() => settingsUpdateSchema.parse({ unknown: 1 })).toThrow();
     expect(() => settingsUpdateSchema.parse({ excludedPaths: [''] })).toThrow();
-    expect(() => settingsUpdateSchema.parse({ minDuplicateSize: -1 })).toThrow();
     expect(() => settingsUpdateSchema.parse({ scanDrives: ['C:\\Windows'] })).toThrow();
   });
 });

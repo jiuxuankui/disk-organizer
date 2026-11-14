@@ -7,7 +7,6 @@ import type { IpcContext } from './context';
 function ensureIdle(ctx: IpcContext): void {
   if (
     ctx.scan.isBusy() ||
-    ctx.duplicates.isRunning() ||
     ctx.deleteService.isRunning() ||
     ctx.video.isRunning() ||
     ctx.archive.isRunning()

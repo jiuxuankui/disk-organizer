@@ -45,16 +45,6 @@ export function updateOrganizedFile(
         normalizePathKey(source),
       );
     if (Number(result.changes) !== 1) throw new Error('文件索引已变化');
-    db.prepare('DELETE FROM hash_cache WHERE path_key IN (?, ?)').run(
-      normalizePathKey(source),
-      normalizePathKey(target),
-    );
-    db.prepare(
-      "UPDATE duplicate_runs SET status = 'stale', total_groups = 0, total_files = 0, reclaimable_bytes = 0 WHERE scan_id = ?",
-    ).run(scanId);
-    db.prepare(
-      'DELETE FROM duplicate_groups WHERE run_id IN (SELECT id FROM duplicate_runs WHERE scan_id = ?)',
-    ).run(scanId);
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');

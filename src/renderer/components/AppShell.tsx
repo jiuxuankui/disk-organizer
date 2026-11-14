@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { App as AntApp, Button, Layout, Menu, Progress, Typography } from 'antd';
 import {
-  CopyOutlined,
   FileTextOutlined,
   HomeOutlined,
   ScanOutlined,
@@ -13,7 +12,6 @@ import { isScanActive, useAppStore, type PageKey } from '../store/useAppStore';
 import { closeTopOverlay } from '../lib/back';
 import OverviewPage from '../pages/OverviewPage';
 import FilesPage from '../pages/FilesPage';
-import DuplicatesPage from '../pages/DuplicatesPage';
 import SettingsPage from '../pages/SettingsPage';
 import VideoPage from '../pages/VideoPage';
 import OrganizePage from '../pages/OrganizePage';
@@ -27,7 +25,6 @@ import DeleteFlow from './DeleteFlow';
 const NAV_ITEMS = [
   { key: 'overview', icon: <HomeOutlined />, label: COPY.navOverview },
   { key: 'files', icon: <FileTextOutlined />, label: COPY.navFiles },
-  { key: 'duplicates', icon: <CopyOutlined />, label: COPY.navDuplicates },
   { key: 'video', icon: <VideoCameraOutlined />, label: '视频压缩' },
   { key: 'organize', icon: <FolderOpenOutlined />, label: '归类整理' },
   { key: 'settings', icon: <SettingOutlined />, label: COPY.navSettings },
@@ -90,8 +87,6 @@ function PageContent({ page }: { page: PageKey }): React.JSX.Element {
   switch (page) {
     case 'files':
       return <FilesPage />;
-    case 'duplicates':
-      return <DuplicatesPage />;
     case 'settings':
       return <SettingsPage />;
     case 'video':
@@ -180,11 +175,7 @@ export default function AppShell(): React.JSX.Element {
         {active ? <div className="scan-topline" aria-hidden /> : null}
         <div
           className={
-            page === 'files'
-              ? 'page-scroll page-files'
-              : page === 'duplicates'
-                ? 'page-scroll page-duplicates'
-                : 'page-scroll'
+            page === 'files' ? 'page-scroll page-files' : 'page-scroll'
           }
         >
           <PageContent page={page} />

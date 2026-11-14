@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { organizeRulesSchema } from '@shared/organize';
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_EXCLUDED_PATHS, DEFAULT_MIN_DUPLICATE_SIZE } from '@shared/constants';
+import { DEFAULT_EXCLUDED_PATHS } from '@shared/constants';
 
 export const settingsSchema = z.object({
   scanDrives: z
@@ -11,11 +11,6 @@ export const settingsSchema = z.object({
     .max(26),
   excludedPaths: z.array(z.string().trim().min(1)).max(200),
   skipHiddenSystem: z.boolean(),
-  minDuplicateSize: z
-    .number()
-    .int('重复文件最小体积必须是整数')
-    .min(0)
-    .max(16 * 1024 ** 4),
   autoBackup: z.boolean(),
   organizeRules: organizeRulesSchema.default([]),
 });
@@ -26,7 +21,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   scanDrives: ['C:'],
   excludedPaths: [...DEFAULT_EXCLUDED_PATHS],
   skipHiddenSystem: true,
-  minDuplicateSize: DEFAULT_MIN_DUPLICATE_SIZE,
   autoBackup: true,
   organizeRules: [],
 };
@@ -54,7 +48,6 @@ export function normalizeSettings(input: AppSettings): AppSettings {
     scanDrives,
     excludedPaths,
     skipHiddenSystem: input.skipHiddenSystem,
-    minDuplicateSize: input.minDuplicateSize,
     autoBackup: input.autoBackup,
     organizeRules: input.organizeRules,
   };

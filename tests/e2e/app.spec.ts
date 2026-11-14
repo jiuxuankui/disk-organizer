@@ -171,58 +171,17 @@ test('删除预览默认取消，确认后进入假回收站并刷新列表', as
   await expect(page.locator('.files-panel')).not.toContainText('delete-me.bin');
 });
 
-test('重复文件支持建议勾选和整组删除警告', async () => {
-  await navTo('重复文件');
-  const scopeSelect = page.locator('.duplicates-page .dup-scope-select');
-  await expect(scopeSelect).toBeVisible();
-  await expect(scopeSelect).toContainText('C:');
-  await page
-    .locator('.duplicates-page button')
-    .filter({ hasText: '开始查找' })
-    .first()
-    .click();
-  await expect(page.locator('.dup-summary')).toBeVisible({ timeout: 180000 });
-  await expect(page.locator('.dup-scope-summary')).toContainText('本次查找范围：C:');
-  await expect(page.locator('.dup-group')).toHaveCount(1);
-
-  await page.locator('.dup-group-head').first().click();
-  await page.locator('.dup-bulk-actions button').filter({ hasText: '一键按建议勾选' }).click();
-  await expect(page.locator('.dup-bulk-summary')).toContainText('已勾选');
-
-  await page.locator('.dup-bulk-actions button').filter({ hasText: '取消选择' }).click();
-  const memberChecks = page.locator('.dup-group-body .dup-member input[type=checkbox]');
-  await expect(memberChecks).toHaveCount(3);
-  for (let index = 0; index < 3; index += 1) {
-    await memberChecks.nth(index).click();
-  }
-  await page.locator('.dup-bulk-actions button.ant-btn-dangerous').click();
-  await waitModalTitle('确认移到回收站');
-  await expect(visibleModal()).toContainText('1 个重复组的所有副本都在待删列表中');
-  await expect(visibleModal().locator('.ant-modal-footer button.ant-btn-dangerous')).toBeDisabled();
-  await visibleModal().locator('.ant-alert-error input[type=checkbox]').click();
-  await expect(visibleModal().locator('.ant-modal-footer button.ant-btn-dangerous')).toBeEnabled();
-  await visibleModal()
-    .locator('.ant-modal-footer button:not(.ant-btn-dangerous)')
-    .click();
-  await page.waitForSelector('.ant-modal:visible', { state: 'detached', timeout: 10000 });
-  for (const name of ['cat-a.jpg', 'cat-b.jpg', 'cat-c.jpg']) {
-    expect(fs.existsSync(path.join(fixtureRoot, 'photos', name))).toBe(true);
-  }
-});
-
 test('设置保存、排除目录和手动备份', async () => {
   await navTo('设置');
   await page.waitForSelector('.settings-page', { timeout: 15000 });
-  await page.locator('.settings-page .ant-input-number-input').first().fill('5');
-  await page.locator('.settings-page .ant-space-compact input').fill('C:\\Windows');
+  await page.locator('.settings-page .ant-space-compact input').fill('D:\\E2E-Excluded');
   await page.locator('.settings-page button').filter({ hasText: '添加' }).click();
   await page.locator('.settings-page button').filter({ hasText: '保存设置' }).click();
   await expect(page.locator('.ant-message')).toContainText('设置已保存');
 
   const settingsPath = path.join(dataDir, 'data', 'settings.json');
   const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-  expect(settings.minDuplicateSize).toBe(5 * 1024 * 1024);
-  expect(settings.excludedPaths).toContain('C:\\Windows');
+  expect(settings.excludedPaths).toContain('D:\\E2E-Excluded');
 
   await page.locator('.settings-page button').filter({ hasText: '立即备份' }).click();
   await expect(page.locator('.ant-message')).toContainText('已创建备份');
@@ -238,8 +197,7 @@ test('关闭并重启后索引与设置仍然存在', async () => {
   await navTo('全部文件');
   await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(6);
   await navTo('设置');
-  await page.waitForSelector('.settings-page .ant-input-number-input', { timeout: 15000 });
-  await expect(page.locator('.settings-page .ant-input-number-input').first()).toHaveValue('5');
+  await expect(page.locator('.settings-excluded-list')).toContainText('D:\\E2E-Excluded');
 });
 
 test('清空数据保留设置和自动备份', async () => {

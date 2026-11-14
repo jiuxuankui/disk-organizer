@@ -112,19 +112,11 @@ function setup() {
 }
 
 describe('safe file organization', () => {
-  it('moves real same-drive files, numbers collisions, updates paths/identity and invalidates duplicates', async () => {
+  it('moves real same-drive files, numbers collisions and updates paths/identity', async () => {
     const s = setup();
     const a = s.insert('a/同名.txt', 'first');
     const b = s.insert('b/同名.txt', 'second');
     fs.writeFileSync(path.join(s.output, '同名.txt'), 'existing');
-    s.db
-      .prepare('INSERT INTO hash_cache VALUES (?, ?, ?, ?, ?, ?)')
-      .run(normalizePathKey(a.file), 5, 0, 'quick', 'full', 0);
-    s.db
-      .prepare(
-        "INSERT INTO duplicate_runs (scan_id,status,min_size,created_at) VALUES (?,'completed',0,0)",
-      )
-      .run(s.scanId);
     const preview = s.plan();
     expect(preview.items.map((item) => item.allowed)).toEqual([true, true]);
     expect(preview.items.every((item) => !item.crossDrive)).toBe(true);
@@ -142,8 +134,6 @@ describe('safe file organization', () => {
       expect(getFileById(s.db, s.scanId, file.id)?.path).toBe(target);
     });
     expect(fs.readFileSync(path.join(s.output, '同名.txt'), 'utf8')).toBe('existing');
-    expect(s.db.prepare('SELECT COUNT(*) AS n FROM hash_cache').get()).toEqual({ n: 0 });
-    expect(s.db.prepare('SELECT status FROM duplicate_runs').get()).toEqual({ status: 'stale' });
     expect(s.db.prepare('SELECT total_files, identified_bytes FROM scans').get()).toEqual({
       total_files: 2,
       identified_bytes: 11,

@@ -8,9 +8,6 @@ import type {
   DeletePreview,
   DeleteProgress,
   DriveInfo,
-  DuplicateGroupPage,
-  DuplicateQuery,
-  DuplicatesState,
   FileQuery,
   FileRecord,
   HomeOverview,
@@ -64,10 +61,6 @@ export interface DiskOrganizerApi {
   listFileIds(query: FileQuery): Promise<number[]>;
   getFile(id: number): Promise<FileRecord | null>;
   syncIndex(): Promise<IndexSyncResult>;
-  getDuplicatesState(): Promise<DuplicatesState>;
-  startDuplicates(drives?: string[]): Promise<DuplicatesState>;
-  cancelDuplicates(): Promise<DuplicatesState>;
-  queryDuplicateGroups(query: DuplicateQuery): Promise<DuplicateGroupPage>;
   getScanState(): Promise<ScanProgress>;
   startScan(input: StartScanInput): Promise<ScanProgress>;
   pauseScan(): Promise<ScanProgress>;

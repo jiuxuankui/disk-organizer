@@ -4,7 +4,6 @@ import { registerDrivesIpc } from './drives';
 import { registerScanIpc } from './scan';
 import { registerHomeIpc } from './home';
 import { registerFilesIpc } from './files';
-import { registerDuplicatesIpc } from './duplicates';
 import { registerDeleteIpc } from './delete';
 import { registerLongTrashIpc } from './longTrash';
 import { registerDataIpc } from './data';
@@ -25,7 +24,6 @@ export function registerIpc(ctx: IpcContext): void {
   registerScanIpc(ctx);
   registerHomeIpc(ctx);
   registerFilesIpc(ctx);
-  registerDuplicatesIpc(ctx);
   registerDeleteIpc(ctx);
   registerLongTrashIpc(ctx);
   registerDataIpc(ctx);

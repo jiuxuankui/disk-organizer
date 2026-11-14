@@ -8,7 +8,6 @@ import {
   Descriptions,
   Empty,
   Input,
-  InputNumber,
   List,
   Modal,
   Space,
@@ -31,14 +30,10 @@ import { formatBytes, formatCount, formatDateTime } from '@shared/format';
 import PageHeader from '../components/PageHeader';
 import { describeError, isScanActive, useAppStore } from '../store/useAppStore';
 
-const MB = 1024 * 1024;
-const SIZE_PRESETS = [0, 1, 10, 100] as const;
-
 interface SettingsDraft {
   scanDrives: string[];
   excludedPaths: string[];
   skipHiddenSystem: boolean;
-  minDuplicateSizeMb: number;
   autoBackup: boolean;
 }
 
@@ -47,7 +42,6 @@ function toDraft(settings: AppSettings): SettingsDraft {
     scanDrives: [...settings.scanDrives],
     excludedPaths: [...settings.excludedPaths],
     skipHiddenSystem: settings.skipHiddenSystem,
-    minDuplicateSizeMb: Math.round(settings.minDuplicateSize / MB),
     autoBackup: settings.autoBackup,
   };
 }
@@ -173,15 +167,9 @@ export default function SettingsPage(): React.JSX.Element {
       !sameList([...draft.scanDrives].sort(), [...settings.scanDrives].sort()) ||
       !sameList(draft.excludedPaths, settings.excludedPaths) ||
       draft.skipHiddenSystem !== settings.skipHiddenSystem ||
-      Math.round(draft.minDuplicateSizeMb * MB) !== settings.minDuplicateSize ||
       draft.autoBackup !== settings.autoBackup
     );
   }, [settings, draft]);
-
-  const minSizeChanged =
-    settings && draft
-      ? Math.round(draft.minDuplicateSizeMb * MB) !== settings.minDuplicateSize
-      : false;
 
   const patchDraft = (patch: Partial<SettingsDraft>): void => {
     setDraft((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -212,19 +200,12 @@ export default function SettingsPage(): React.JSX.Element {
     if (draft.skipHiddenSystem !== settings?.skipHiddenSystem) {
       patch.skipHiddenSystem = draft.skipHiddenSystem;
     }
-    const minSize = Math.round(draft.minDuplicateSizeMb * MB);
-    if (minSize !== settings?.minDuplicateSize) patch.minDuplicateSize = minSize;
     if (draft.autoBackup !== settings?.autoBackup) patch.autoBackup = draft.autoBackup;
 
     const ok = await updateSettings(patch);
     setSaving(false);
     if (!ok) return;
-    pushNotice(
-      'success',
-      patch.minDuplicateSize !== undefined
-        ? '设置已保存，重新查找重复文件后生效'
-        : '设置已保存，下次扫描生效',
-    );
+    pushNotice('success', '设置已保存，下次扫描生效');
   };
 
   const handleCreateBackup = async (): Promise<void> => {
@@ -311,11 +292,6 @@ export default function SettingsPage(): React.JSX.Element {
 
   const backups = dataInfo?.backups ?? [];
   const longEntries = longTrash?.entries ?? [];
-  const minSizeLabel =
-    (draft?.minDuplicateSizeMb ?? 0) === 0
-      ? '不限（0 字节文件也会跳过）'
-      : formatBytes((draft?.minDuplicateSizeMb ?? 0) * MB);
-
   return (
     <div className="settings-page">
       <PageHeader
@@ -420,51 +396,6 @@ export default function SettingsPage(): React.JSX.Element {
           ) : (
             <Typography.Text type="secondary">加载中…</Typography.Text>
           )}
-        </Card>
-
-        <Card title="重复文件规则">
-          {draft ? (
-            <Space direction="vertical" size={12} style={{ width: '100%' }}>
-              <Space wrap align="center">
-                <Typography.Text strong>最小体积</Typography.Text>
-                <InputNumber<number>
-                  min={0}
-                  max={16 * 1024 * 1024}
-                  step={1}
-                  precision={0}
-                  value={draft.minDuplicateSizeMb}
-                  onChange={(value) =>
-                    patchDraft({ minDuplicateSizeMb: Math.max(0, value ?? 0) })
-                  }
-                  addonAfter="MB"
-                  style={{ width: 160 }}
-                />
-                <Space size={4} wrap>
-                  {SIZE_PRESETS.map((mb) => (
-                    <Button
-                      key={mb}
-                      size="small"
-                      type={draft.minDuplicateSizeMb === mb ? 'primary' : 'default'}
-                      onClick={() => patchDraft({ minDuplicateSizeMb: mb })}
-                    >
-                      {mb === 0 ? '不限' : `${mb} MB`}
-                    </Button>
-                  ))}
-                </Space>
-              </Space>
-              <Typography.Text type="secondary">
-                当前规则：{minSizeLabel}。小于该体积的文件不参与重复比对。
-              </Typography.Text>
-              {minSizeChanged ? (
-                <Alert
-                  type="info"
-                  showIcon
-                  message="修改后需要重新查找重复文件"
-                  description="已有的重复文件结果基于旧规则，保存后到“重复文件”页重新查找即可（不会重新扫描硬盘）。"
-                />
-              ) : null}
-            </Space>
-          ) : null}
         </Card>
 
         <Card title="回收站状态">

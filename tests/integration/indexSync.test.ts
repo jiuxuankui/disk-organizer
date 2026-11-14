@@ -127,18 +127,12 @@ function readyDrives(letter = 'C:', ready = true) {
 describe('IndexSyncService', () => {
   it('移除磁盘上已不存在的文件并同步扫描统计', async () => {
     const { db, scanId, files, ids } = seed();
-    db.prepare(
-      `INSERT INTO hash_cache (path_key, size, mtime_ms, quick_hash, full_hash, updated_at)
-       VALUES (?, ?, ?, ?, NULL, ?)`,
-    ).run(files[0].pathKey, files[0].size, files[0].mtimeMs, 'quick', 3000);
-
     fs.rmSync(files[0].path);
     const service = new IndexSyncService({ db, drives: readyDrives() });
     const result = await service.sync();
 
     expect(result).toEqual({ removed: 1, checked: 2, skipped: false });
     expect(countFiles(db, scanId)).toBe(1);
-    expect(db.prepare('SELECT COUNT(*) AS count FROM hash_cache').get()).toEqual({ count: 0 });
     const summary = getActiveScanSummary(db);
     expect(summary?.totalFiles).toBe(1);
     expect(summary?.identifiedBytes).toBe(files[1].size);

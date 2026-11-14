@@ -296,29 +296,17 @@ describe('ScanService lifecycle', () => {
     expect(getScanRow(db, started.scanId!)?.status).toBe('cancelled');
   });
 
-  it('cleans old snapshots, hash cache, and marks older duplicate runs stale', async () => {
+  it('cleans old snapshots when a new scan starts', async () => {
     const { db, service, workers } = createHarness();
     service.start({ drives: ['C:'], excludedPaths: [], skipHiddenSystem: true });
     completeScan(workers[0], { totalFiles: 2, identifiedBytes: 100 });
     await service.whenIdle();
     const firstScanId = service.getState().scanId!;
     insertFileRow(db, firstScanId, 'C:\\old.bin', 50);
-    db.prepare(
-      `INSERT INTO hash_cache (path_key, size, mtime_ms, quick_hash, full_hash, updated_at)
-       VALUES ('c:\\old.bin', 50, 1, 'q', 'f', 1)`,
-    ).run();
-    db.prepare(
-      `INSERT INTO duplicate_runs (scan_id, status, min_size, created_at)
-       VALUES (?, 'completed', 1048576, 1)`,
-    ).run(firstScanId);
 
     service.start({ drives: ['C:'], excludedPaths: [], skipHiddenSystem: true });
     const secondScanId = service.getState().scanId!;
     insertFileRow(db, secondScanId, 'C:\\new.bin', 60);
-    db.prepare(
-      `INSERT INTO hash_cache (path_key, size, mtime_ms, quick_hash, full_hash, updated_at)
-       VALUES ('c:\\new.bin', 60, 1, 'q', 'f', 1)`,
-    ).run();
     completeScan(workers[1], { totalFiles: 1, identifiedBytes: 60 });
     await service.whenIdle();
 
@@ -331,12 +319,6 @@ describe('ScanService lifecycle', () => {
       .prepare('SELECT COUNT(*) AS c FROM files WHERE scan_id = ?')
       .get(secondScanId) as { c: number };
     expect(newFiles.c).toBe(1);
-    const cache = db.prepare('SELECT path_key FROM hash_cache').all() as Array<{
-      path_key: string;
-    }>;
-    expect(cache.map((row) => row.path_key)).toEqual(['c:\\new.bin']);
-    const run = db.prepare('SELECT status FROM duplicate_runs').get() as { status: string };
-    expect(run.status).toBe('stale');
   });
 
   it('recovers interrupted scans on startup and preserves the active snapshot', () => {

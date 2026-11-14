@@ -37,16 +37,14 @@ describe('settings persistence', () => {
     first.load();
     const updated = first.update({
       scanDrives: ['d:', 'C:', 'D:'],
-      minDuplicateSize: 10 * 1024 * 1024,
       skipHiddenSystem: false,
     });
     expect(updated.scanDrives).toEqual(['D:', 'C:']);
-    expect(updated.minDuplicateSize).toBe(10 * 1024 * 1024);
     expect(updated.skipHiddenSystem).toBe(false);
 
     const second = new SettingsService(filePath);
     expect(second.get().scanDrives).toEqual(['D:', 'C:']);
-    expect(second.get().minDuplicateSize).toBe(10 * 1024 * 1024);
+    expect(second.get().skipHiddenSystem).toBe(false);
   });
 
   it('rejects invalid updates without overwriting the file', () => {
@@ -54,9 +52,9 @@ describe('settings persistence', () => {
     const service = new SettingsService(filePath);
     service.load();
     const before = fs.readFileSync(filePath, 'utf8');
-    expect(() => service.update({ minDuplicateSize: -5 })).toThrow(/设置未保存/);
+    expect(() => service.update({ scanDrives: ['C:\\Windows'] })).toThrow(/设置未保存/);
     expect(fs.readFileSync(filePath, 'utf8')).toBe(before);
-    expect(service.get().minDuplicateSize).toBe(DEFAULT_SETTINGS.minDuplicateSize);
+    expect(service.get()).toEqual(DEFAULT_SETTINGS);
   });
 
   it('falls back to defaults for malformed JSON', () => {
@@ -75,7 +73,6 @@ describe('settings persistence', () => {
         scanDrives: ['c:', 'C:'],
         excludedPaths: ['C:\\Windows\\', 'c:\\windows', 'D:\\Private'],
         skipHiddenSystem: true,
-        minDuplicateSize: 0,
         autoBackup: false,
         unknownKey: 'ignored',
       }),
@@ -83,7 +80,6 @@ describe('settings persistence', () => {
       scanDrives: ['C:'],
       excludedPaths: ['C:\\Windows', 'D:\\Private'],
       skipHiddenSystem: true,
-      minDuplicateSize: 0,
       autoBackup: false,
       organizeRules: [],
     });

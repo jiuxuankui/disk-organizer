@@ -89,29 +89,6 @@ export const fileIdSchema = z
   })
   .strict();
 
-export const duplicatesStartSchema = z
-  .object({
-    drives: z.array(driveLetterSchema).min(1, '请至少选择一块硬盘').max(26).optional(),
-  })
-  .strict();
-
-export const duplicateQuerySchema = z
-  .object({
-    minSize: z
-      .number()
-      .int()
-      .nonnegative()
-      .max(16 * 1024 ** 4)
-      .default(0),
-    drive: driveLetterSchema.nullish(),
-    type: z.enum([...FILE_TYPE_KEYS, 'all']).nullish(),
-    sortBy: z.enum(['reclaimable', 'size', 'count']).default('reclaimable'),
-    sortOrder: z.enum(['asc', 'desc']).default('desc'),
-    page: z.number().int().min(1).max(2_000_000).default(1),
-    pageSize: z.number().int().min(1).max(100).default(20),
-  })
-  .strict();
-
 export const copyTextSchema = z
   .object({
     text: z.string().min(1).max(32767),
@@ -138,12 +115,6 @@ export const settingsUpdateSchema = z
     scanDrives: z.array(driveLetterSchema).max(26).optional(),
     excludedPaths: z.array(z.string().trim().min(1).max(1024)).max(200).optional(),
     skipHiddenSystem: z.boolean().optional(),
-    minDuplicateSize: z
-      .number()
-      .int()
-      .nonnegative()
-      .max(16 * 1024 ** 4)
-      .optional(),
     autoBackup: z.boolean().optional(),
     organizeRules: organizeRulesSchema.optional(),
   })
@@ -154,9 +125,7 @@ export type DeleteFilesPayload = z.infer<typeof deleteFilesSchema>;
 export type SettingsUpdatePayload = z.infer<typeof settingsUpdateSchema>;
 
 export type ScanStartPayload = z.infer<typeof scanStartSchema>;
-export type DuplicatesStartPayload = z.infer<typeof duplicatesStartSchema>;
 export type FileQueryPayload = z.infer<typeof fileQuerySchema>;
-export type DuplicateQueryPayload = z.infer<typeof duplicateQuerySchema>;
 
 export function parseIpc<Schema extends z.ZodType>(
   schema: Schema,

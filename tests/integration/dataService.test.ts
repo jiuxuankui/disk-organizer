@@ -20,7 +20,6 @@ interface Fixture {
   db: DatabaseSync;
   paths: AppPaths;
   dataDir: string;
-  fileId: number;
   scanId: number;
 }
 
@@ -38,7 +37,7 @@ function fixture(): Fixture {
     settingsPath: path.join(dataDir, 'settings.json'),
   };
   fs.mkdirSync(dataDir, { recursive: true });
-  fs.writeFileSync(paths.settingsPath, JSON.stringify({ minDuplicateSize: 2048 }));
+  fs.writeFileSync(paths.settingsPath, JSON.stringify({ autoBackup: true }));
   const db = openDatabase(paths.dbPath);
   cleanups.push(() => {
     try {
@@ -52,7 +51,7 @@ function fixture(): Fixture {
   const filePath = path.join(root, 'docs', 'a.txt');
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, 'hello');
-  const inserted = db
+  db
     .prepare(
       `INSERT INTO files
         (scan_id, drive, path, path_key, name, name_key, ext, type, size, mtime_ms, ctime_ms, root_dir, dir_path, dir_key, volume_id, file_id)
@@ -65,7 +64,6 @@ function fixture(): Fixture {
       path.win32.dirname(filePath),
       normalizePathKey(path.win32.dirname(filePath)),
     );
-  const fileId = Number(inserted.lastInsertRowid);
   finalizeScan(db, scanId, {
     totalFiles: 1,
     identifiedBytes: 5,
@@ -73,34 +71,7 @@ function fixture(): Fixture {
     finishedAt: 2000,
   });
   setActiveScanId(db, scanId);
-  db.prepare(
-    'INSERT INTO hash_cache (path_key, size, mtime_ms, quick_hash, full_hash, updated_at) VALUES (?, 5, 1, ?, ?, 1)',
-  ).run(normalizePathKey(filePath), 'quick', 'full');
-  db.prepare(
-    'INSERT INTO scan_staging (scan_id, drive, path, path_key) VALUES (?, ?, ?, ?)',
-  ).run(scanId, 'C:', filePath, normalizePathKey(filePath));
-  const runId = Number(
-    db
-      .prepare(
-        `INSERT INTO duplicate_runs (scan_id, status, min_size, created_at, finished_at, total_groups, total_files, reclaimable_bytes)
-         VALUES (?, 'completed', 0, 1, 2, 1, 2, 5)`,
-      )
-      .run(scanId).lastInsertRowid,
-  );
-  const groupId = Number(
-    db
-      .prepare(
-        `INSERT INTO duplicate_groups (run_id, size, file_count, reclaimable_bytes, type, mixed_ext)
-         VALUES (?, 5, 2, 5, 'document', 0)`,
-      )
-      .run(runId).lastInsertRowid,
-  );
-  db.prepare(
-    `INSERT INTO duplicate_members (group_id, file_id, path, name, mtime_ms, is_suggested_keep)
-     VALUES (?, ?, ?, 'a.txt', 1, 1)`,
-  ).run(groupId, fileId, filePath);
-
-  return { db, paths, dataDir, fileId, scanId };
+  return { db, paths, dataDir, scanId };
 }
 
 function count(db: DatabaseSync, table: string): number {
@@ -146,22 +117,14 @@ describe('data service', () => {
       expect(result.backup).not.toBeNull();
       expect(fs.existsSync(result.backup!.path)).toBe(true);
 
-      for (const table of [
-        'files',
-        'scans',
-        'scan_staging',
-        'hash_cache',
-        'duplicate_runs',
-        'duplicate_groups',
-        'duplicate_members',
-      ]) {
+      for (const table of ['files', 'scans', 'scan_staging']) {
         expect(count(f.db, table)).toBe(0);
       }
       expect(
         f.db.prepare("SELECT value FROM meta WHERE key = 'active_scan_id'").get(),
       ).toBeUndefined();
       expect(JSON.parse(fs.readFileSync(f.paths.settingsPath, 'utf8'))).toEqual({
-        minDuplicateSize: 2048,
+        autoBackup: true,
       });
 
       const restored = new BackupService({

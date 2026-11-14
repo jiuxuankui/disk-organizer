@@ -18,8 +18,6 @@ const root = path.resolve(
 );
 const emptyCount = Number(readOption('empty', '200000'));
 const dirCount = Number(readOption('dirs', '20000'));
-const dupCount = Number(readOption('dup-count', '1000'));
-const dupSizeMb = Number(readOption('dup-size-mb', '2'));
 
 function cleanup() {
   if (!fs.existsSync(root)) {
@@ -65,41 +63,18 @@ function seedEmptyFiles() {
   console.log(`空文件 ${created} 个，耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
 }
 
-function seedDuplicates() {
-  const dir = path.join(root, 'dup');
-  fs.mkdirSync(dir, { recursive: true });
-  const content = Buffer.alloc(dupSizeMb * 1024 * 1024, 0x5a);
-  const startedAt = Date.now();
-  for (let index = 0; index < dupCount; index += 1) {
-    fs.writeFileSync(
-      path.join(dir, `dup-${String(index).padStart(4, '0')}.bin`),
-      content,
-    );
-    if ((index + 1) % 200 === 0) {
-      console.log(`重复文件进度 ${index + 1}/${dupCount}`);
-    }
-  }
-  console.log(
-    `重复文件 ${dupCount} 个 × ${dupSizeMb}MB，耗时 ${((Date.now() - startedAt) / 1000).toFixed(1)}s`,
-  );
-}
-
 try {
   if (process.argv.includes('--clean')) {
     cleanup();
   } else {
     prepare();
     seedEmptyFiles();
-    seedDuplicates();
-    const totalBytes = dupCount * dupSizeMb * 1024 * 1024;
     console.log(
       JSON.stringify(
         {
           root,
           emptyFiles: emptyCount,
-          directories: dirCount + 1,
-          duplicateFiles: dupCount,
-          duplicateBytes: totalBytes,
+          directories: dirCount,
         },
         null,
         2,

@@ -42,8 +42,6 @@ export class DataService {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.exec(`
-        DELETE FROM duplicate_runs;
-        DELETE FROM hash_cache;
         DELETE FROM scan_staging;
         DELETE FROM files;
         DELETE FROM scans;
