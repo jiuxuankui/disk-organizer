@@ -584,7 +584,7 @@ export default function SettingsPage(): React.JSX.Element {
               type="warning"
               showIcon
               message="清空扫描数据"
-              description="删除扫描索引、文件列表和重复文件结果。设置、备份以及磁盘上的文件都不会被改动。清空前会自动创建备份。"
+              description="删除扫描索引和文件列表。设置、备份以及磁盘上的文件都不会被改动。清空前会自动创建备份。"
               action={
                 <Button
                   danger

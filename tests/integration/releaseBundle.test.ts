@@ -7,6 +7,8 @@ import { execFileSync } from 'node:child_process';
 import { ZipArchive } from 'archiver';
 import { pipeline } from 'node:stream/promises';
 import {
+  ENV_DIR,
+  ENV_NOTE_NAME,
   GUIDE_NAME,
   INSTALLER_DIR,
   RUNTIME_DIR,
@@ -14,6 +16,7 @@ import {
   bundleNames,
   createReleaseBundle,
   extractZip,
+  runtimeEnvironmentNote,
   verifyReleaseBundle,
 } from '../../scripts/release-bundle.mjs';
 
@@ -79,7 +82,7 @@ describe('complete release bundle', () => {
     expect(fs.readdirSync(extracted)).toEqual([names.root]);
     const root = path.join(extracted, names.root);
     expect(fs.readdirSync(root).sort()).toEqual(
-      [GUIDE_NAME, INSTALLER_DIR, RUNTIME_DIR, SUMS_NAME].sort(),
+      [ENV_DIR, GUIDE_NAME, INSTALLER_DIR, RUNTIME_DIR, SUMS_NAME].sort(),
     );
     expect(digest(path.join(root, INSTALLER_DIR, names.installer))).toBe(
       digest(path.join(releaseDir, names.installer)),
@@ -108,14 +111,34 @@ describe('complete release bundle', () => {
     ]) {
       expect(text).toContain(phrase);
     }
+    expect(text).toContain(`${ENV_DIR}\\${ENV_NOTE_NAME}`);
+
+    const envNote = fs.readFileSync(path.join(root, ENV_DIR, ENV_NOTE_NAME));
+    expect([...envNote.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+    const envText = envNote.toString('utf8');
+    expect(envText).not.toMatch(/[^\r]\n/);
+    for (const phrase of [
+      `${PRODUCT} ${VERSION} 运行环境说明`,
+      'Electron',
+      'FFmpeg',
+      'Windows 10 / 11 64 位',
+      'Microsoft Visual C++ 2015-2022',
+      'learn.microsoft.com',
+      '完全离线运行',
+    ]) {
+      expect(envText).toContain(phrase);
+    }
+    expect(envText).toBe(
+      `\ufeff${runtimeEnvironmentNote(VERSION, PRODUCT).replace(/\r?\n/g, '\r\n')}`,
+    );
 
     const sums = fs.readFileSync(path.join(root, SUMS_NAME), 'utf8').trim().split('\r\n');
-    expect(sums).toHaveLength(files.size + 2);
+    expect(sums).toHaveLength(files.size + 3);
     for (const line of sums) {
       const [hash, name] = line.split(' *');
       expect(digest(path.join(root, name))).toBe(hash);
     }
-    expect(result.fileCount).toBe(files.size + 2);
+    expect(result.fileCount).toBe(files.size + 3);
     expect(result.sha256).toBe(digest(result.zipPath));
 
     await expect(
@@ -125,7 +148,7 @@ describe('complete release bundle', () => {
         version: VERSION,
         productName: PRODUCT,
       }),
-    ).resolves.toEqual({ fileCount: files.size + 2 });
+    ).resolves.toEqual({ fileCount: files.size + 3 });
   });
 
   it('never overwrites an existing bundle', async () => {
@@ -197,6 +220,11 @@ describe('complete release bundle', () => {
 
     const extra = await rebuild((root) => write(path.join(root, RUNTIME_DIR, 'extra.dll'), 'x'));
     await expect(verifyReleaseBundle({ ...options, zipPath: extra })).rejects.toThrow(
+      /与校验清单不一致/,
+    );
+
+    const noEnvNote = await rebuild((root) => fs.rmSync(path.join(root, ENV_DIR, ENV_NOTE_NAME)));
+    await expect(verifyReleaseBundle({ ...options, zipPath: noEnvNote })).rejects.toThrow(
       /与校验清单不一致/,
     );
 

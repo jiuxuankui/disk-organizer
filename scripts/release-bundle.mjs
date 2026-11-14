@@ -9,7 +9,9 @@ import { ZipArchive } from 'archiver';
 
 export const INSTALLER_DIR = '安装程序';
 export const RUNTIME_DIR = '运行文件';
+export const ENV_DIR = '运行环境';
 export const GUIDE_NAME = '安装说明.txt';
+export const ENV_NOTE_NAME = '运行环境说明.txt';
 export const SUMS_NAME = 'SHA256SUMS.txt';
 
 const RUNTIME_REQUIRED = [
@@ -30,6 +32,38 @@ export function bundleNames(version, productName) {
   };
 }
 
+export function runtimeEnvironmentNote(version, productName) {
+  return `${productName} ${version} 运行环境说明
+========================================
+
+一、随包自带的运行组件
+- 界面和后台进程使用 Electron 内置的 Chromium 与 Node.js，已包含在“${RUNTIME_DIR}”中，
+  不需要另外安装浏览器、.NET、Java 或 Python。
+- 底层磁盘操作使用随附的 koffi 原生模块（resources/app.asar.unpacked）。
+- 视频编码工具 FFmpeg 与 FFprobe 已内置在“${RUNTIME_DIR}\\resources\\ffmpeg\\”，
+  不需要单独安装，运行时不访问网络。
+
+二、系统要求
+- Windows 10 / 11 64 位；Windows 7 / 8 不支持。
+- 建议 4 GB 以上内存，剩余磁盘空间不少于 2 GB（扫描和归类需要临时空间）。
+- 只处理本地固定硬盘，不处理移动硬盘、U 盘和网络盘。
+
+三、Microsoft Visual C++ 运行库
+本软件依赖 Microsoft Visual C++ 2015-2022 运行库（vcruntime140.dll 等）。
+绝大多数 Windows 10 / 11 已自带该运行库；如果双击程序提示缺少 DLL 或无法启动，
+请从微软官方文档页下载安装 x64 版“Microsoft Visual C++ 可再发行程序包”：
+https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist
+安装后重新打开本软件即可；软件本身仍完全离线运行。
+
+四、如何自检
+1. 在“${RUNTIME_DIR}”文件夹中双击“${productName}.exe”，能打开主界面即表示运行环境正常。
+2. 可在 PowerShell 中执行以下命令，两个命令都能输出版本信息即表示视频工具可用：
+   ".\\${RUNTIME_DIR}\\resources\\ffmpeg\\ffmpeg.exe" -version
+   ".\\${RUNTIME_DIR}\\resources\\ffmpeg\\ffprobe.exe" -version
+3. 每个文件的完整性可用 ${SUMS_NAME} 中的 SHA-256 核对。
+`;
+}
+
 export function installGuide(version, productName) {
   const names = bundleNames(version, productName);
   return `${productName} ${version} 安装说明
@@ -41,6 +75,8 @@ export function installGuide(version, productName) {
 - Windows 10 / 11 64 位
 - 只处理本地固定硬盘（不处理移动硬盘、U 盘、网络盘）
 - 已内置视频编码工具 FFmpeg，无需另行安装任何运行环境
+- 内置运行组件、系统要求与 Visual C++ 运行库说明见“${ENV_DIR}”文件夹；
+  如果启动时提示缺少运行库，请先阅读“${ENV_DIR}\\${ENV_NOTE_NAME}”
 
 二、使用前
 请先把整个压缩包完整解压到本地硬盘，不要在压缩软件里直接双击运行。
@@ -63,7 +99,7 @@ export function installGuide(version, productName) {
 
 五、首次使用
 1. 点击侧边栏底部“重新扫描”，勾选要扫描的硬盘并确认。
-2. 扫描完成后在“总览”“全部文件”“重复文件”“归类整理”中查看和处理文件。
+2. 扫描完成后在“总览”“全部文件”“归类整理”中查看和处理文件。
 3. 删除只会把文件移到 Windows 回收站，可以还原；清空回收站后才会释放空间。
 
 六、Windows 安全提示
@@ -132,7 +168,14 @@ export async function createReleaseBundle({ releaseDir, version, productName }) 
     `\ufeff${installGuide(version, productName).replace(/\r?\n/g, '\r\n')}`,
     'utf8',
   );
-  const sums = [`${createHash('sha256').update(guide).digest('hex')} *${GUIDE_NAME}`];
+  const envNote = Buffer.from(
+    `\ufeff${runtimeEnvironmentNote(version, productName).replace(/\r?\n/g, '\r\n')}`,
+    'utf8',
+  );
+  const sums = [
+    `${createHash('sha256').update(guide).digest('hex')} *${GUIDE_NAME}`,
+    `${createHash('sha256').update(envNote).digest('hex')} *${ENV_DIR}/${ENV_NOTE_NAME}`,
+  ];
   for (const file of files) {
     if (!file.directory) {
       file.stats = fs.statSync(file.source);
@@ -147,6 +190,7 @@ export async function createReleaseBundle({ releaseDir, version, productName }) 
   writing.catch(() => undefined);
   try {
     archive.append(guide, { name: `${names.root}/${GUIDE_NAME}` });
+    archive.append(envNote, { name: `${names.root}/${ENV_DIR}/${ENV_NOTE_NAME}` });
     archive.append(`${sums.join('\r\n')}\r\n`, { name: `${names.root}/${SUMS_NAME}` });
     for (const file of files) {
       const name = `${names.root}/${file.name}`;
@@ -230,10 +274,16 @@ export async function verifyReleaseBundle({
     if (top.length !== 1 || top[0] !== names.root)
       throw new Error(`压缩包顶层应只有“${names.root}”文件夹`);
     const root = path.join(extracted, names.root);
+    const topEntries = fs.readdirSync(root).sort();
+    const expectedTop = [ENV_DIR, GUIDE_NAME, INSTALLER_DIR, RUNTIME_DIR, SUMS_NAME].sort();
+    if (topEntries.join('|') !== expectedTop.join('|'))
+      throw new Error('压缩包应只包含运行环境、安装说明、运行文件、安装程序和校验清单');
     const guide = fs.readFileSync(path.join(root, GUIDE_NAME));
     if (!guide.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])))
       throw new Error('安装说明缺少 UTF-8 标记');
-    if (!guide.toString('utf8').includes(names.installer)) throw new Error('安装说明与版本不一致');
+    const guideText = guide.toString('utf8');
+    if (!guideText.includes(names.installer)) throw new Error('安装说明与版本不一致');
+    if (!guideText.includes(ENV_NOTE_NAME)) throw new Error('安装说明缺少运行环境指引');
     const expected = new Map();
     for (const line of fs.readFileSync(path.join(root, SUMS_NAME), 'utf8').trim().split('\r\n')) {
       const match = /^([0-9a-f]{64}) \*(.+)$/.exec(line);
@@ -248,6 +298,17 @@ export async function verifyReleaseBundle({
     for (const name of actual) {
       if ((await sha256File(path.join(root, name))) !== expected.get(name))
         throw new Error(`文件校验失败：${name}`);
+    }
+    const envNote = fs.readFileSync(path.join(root, ENV_DIR, ENV_NOTE_NAME));
+    if (!envNote.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])))
+      throw new Error('运行环境说明缺少 UTF-8 标记');
+    const envText = envNote.toString('utf8');
+    for (const phrase of [
+      'Windows 10 / 11 64 位',
+      'Microsoft Visual C++ 2015-2022',
+      'learn.microsoft.com',
+    ]) {
+      if (!envText.includes(phrase)) throw new Error('运行环境说明内容不完整');
     }
     const installerName = `${INSTALLER_DIR}/${names.installer}`;
     if (!expected.has(installerName)) throw new Error('压缩包缺少安装程序');

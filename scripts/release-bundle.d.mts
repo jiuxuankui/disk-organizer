@@ -1,6 +1,8 @@
 export const INSTALLER_DIR: string;
 export const RUNTIME_DIR: string;
+export const ENV_DIR: string;
 export const GUIDE_NAME: string;
+export const ENV_NOTE_NAME: string;
 export const SUMS_NAME: string;
 
 export interface BundleOptions {
@@ -14,6 +16,7 @@ export function bundleNames(
   productName: string,
 ): { installer: string; executable: string; root: string; zip: string };
 export function installGuide(version: string, productName: string): string;
+export function runtimeEnvironmentNote(version: string, productName: string): string;
 export function extractZip(zipPath: string, destination: string): void;
 export function createReleaseBundle(
   options: BundleOptions,
