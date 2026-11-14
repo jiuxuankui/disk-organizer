@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { organizeRulesSchema } from '@shared/organize';
+import { organizePrioritySchema, organizeRulesSchema } from '@shared/organize';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_EXCLUDED_PATHS } from '@shared/constants';
@@ -13,6 +13,7 @@ export const settingsSchema = z.object({
   skipHiddenSystem: z.boolean(),
   autoBackup: z.boolean(),
   organizeRules: organizeRulesSchema.default([]),
+  organizePriority: organizePrioritySchema,
 });
 
 export type AppSettings = z.infer<typeof settingsSchema>;
@@ -23,6 +24,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   skipHiddenSystem: true,
   autoBackup: true,
   organizeRules: [],
+  organizePriority: 'order',
 };
 
 export function normalizeSettings(input: AppSettings): AppSettings {
@@ -50,6 +52,7 @@ export function normalizeSettings(input: AppSettings): AppSettings {
     skipHiddenSystem: input.skipHiddenSystem,
     autoBackup: input.autoBackup,
     organizeRules: input.organizeRules,
+    organizePriority: input.organizePriority,
   };
 }
 

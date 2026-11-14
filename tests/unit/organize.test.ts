@@ -60,4 +60,34 @@ describe('organize rules and IPC boundary', () => {
       chooseOrganizeRule(file, [{ ...rule, type: 'all', extensions: [], nameContains: '' }]),
     ).toBeDefined();
   });
+
+  it('picks the first matching rule for order priority and same-drive for sameDrive', () => {
+    const local = { ...rule, name: '同盘', targetDir: 'C:\\归类' };
+    expect(chooseOrganizeRule(file, [rule, local], 'order')).toBe(rule);
+    expect(chooseOrganizeRule(file, [local, rule], 'order')).toBe(local);
+    expect(chooseOrganizeRule(file, [rule, local], 'sameDrive')).toBe(local);
+    expect(chooseOrganizeRule(file, [local, rule], 'sameDrive')).toBe(local);
+    expect(chooseOrganizeRule(file, [rule], 'order')).toBe(rule);
+  });
+
+  it('validates preview priority through the IPC boundary', () => {
+    expect(
+      organizePreviewSchema.parse({ sourceDir: 'C:\\docs', rules: [rule], priority: 'order' })
+        .priority,
+    ).toBe('order');
+    expect(
+      organizePreviewSchema.safeParse({
+        sourceDir: 'C:\\docs',
+        rules: [rule],
+        priority: 'order',
+      }).success,
+    ).toBe(true);
+    expect(
+      organizePreviewSchema.safeParse({ sourceDir: 'C:\\docs', rules: [rule], priority: 'bad' })
+        .success,
+    ).toBe(false);
+    expect(organizePreviewSchema.safeParse({ sourceDir: 'C:\\docs', rules: [rule] }).success).toBe(
+      false,
+    );
+  });
 });

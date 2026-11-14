@@ -214,3 +214,52 @@ test('预览分批显示 30 个，滚动到底部再加载剩余项', async () =
   await expect(rows()).toHaveCount(45);
   await expect(page.getByRole('button', { name: '加载更多', exact: true })).toHaveCount(0);
 });
+
+test('下移调整规则顺序，切换优先级改变预览结果', async () => {
+  const removeRule = page.getByRole('button', { name: '移除规则', exact: true });
+  while ((await removeRule.count()) > 0) await removeRule.first().click();
+  await expect(page.locator('.organize-rule')).toHaveCount(0);
+
+  const addRule = async (name: string, target: string): Promise<void> => {
+    await page.getByRole('button', { name: '添加规则', exact: true }).click();
+    const index = (await page.locator('.organize-rule').count()) - 1;
+    const card = page.locator('.organize-rule').nth(index);
+    await card.getByRole('textbox', { name: '规则名称', exact: true }).fill(name);
+    await card.getByRole('textbox', { name: '扩展名条件', exact: true }).fill('txt');
+    await card.getByRole('textbox', { name: '文件名包含', exact: true }).fill('batch-01');
+    await app.evaluate(
+      ({ dialog }, args) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [args.directory] });
+      },
+      { directory: target },
+    );
+    await card.getByRole('button', { name: '选择目标文件夹', exact: true }).click();
+  };
+
+  await addRule('跨盘规则', cross);
+  await addRule('同盘规则', output);
+  await choose('选择来源文件夹', fixture);
+
+  await page.getByRole('button', { name: '生成整理预览', exact: true }).click();
+  await expect(rows()).toHaveCount(1);
+  await expect(rows()).toContainText('跨盘规则');
+  await expect(rows()).toContainText('跨盘');
+
+  await page.getByText('同盘优先', { exact: true }).click();
+  await page.getByRole('button', { name: '生成整理预览', exact: true }).click();
+  await expect(rows()).toContainText('同盘规则');
+  await expect(rows()).toContainText('同盘');
+
+  await page.getByText('按规则顺序', { exact: true }).click();
+  await page
+    .locator('.organize-rule')
+    .first()
+    .getByRole('button', { name: '下 移', exact: true })
+    .click();
+  await expect(
+    page.locator('.organize-rule').first().getByRole('textbox', { name: '规则名称', exact: true }),
+  ).toHaveValue('同盘规则');
+  await page.getByRole('button', { name: '生成整理预览', exact: true }).click();
+  await expect(rows()).toContainText('同盘规则');
+  await expect(rows()).toContainText('同盘');
+});

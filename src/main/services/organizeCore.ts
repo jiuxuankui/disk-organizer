@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { FileRecord } from '@shared/types';
-import { localOrganizePath, type OrganizeRule } from '@shared/organize';
+import { localOrganizePath, type OrganizePriority, type OrganizeRule } from '@shared/organize';
 import { DEFAULT_EXCLUDED_PATHS, SYSTEM_EXCLUDED_DIR_NAMES } from '@shared/constants';
 import { getDriveLetter, isSameOrSubPath, normalizePathKey } from './filesystem';
 import { moveFileNoReplace, readFileAttributes } from './windowsService';
@@ -12,6 +12,7 @@ import { moveFileNoReplace, readFileAttributes } from './windowsService';
 export function chooseOrganizeRule(
   file: FileRecord,
   rules: OrganizeRule[],
+  priority: OrganizePriority = 'sameDrive',
 ): OrganizeRule | undefined {
   const matches = rules.filter(
     (rule) =>
@@ -20,6 +21,7 @@ export function chooseOrganizeRule(
       (rule.extensions.length === 0 || rule.extensions.includes(file.ext.toLowerCase())) &&
       file.name.toLowerCase().includes(rule.nameContains.toLowerCase()),
   );
+  if (priority === 'order') return matches[0];
   return matches.find((rule) => getDriveLetter(rule.targetDir) === file.drive) ?? matches[0];
 }
 

@@ -128,11 +128,13 @@ describe('IPC validation schemas', () => {
         scanDrives: ['c', 'D:'],
         skipHiddenSystem: false,
         autoBackup: false,
+        organizePriority: 'sameDrive',
       }),
     ).toMatchObject({
       scanDrives: ['C:', 'D:'],
       skipHiddenSystem: false,
       autoBackup: false,
+      organizePriority: 'sameDrive',
     });
     expect(settingsUpdateSchema.parse({ excludedPaths: ['D:\\Temp'] }).excludedPaths).toEqual([
       'D:\\Temp',
@@ -141,5 +143,6 @@ describe('IPC validation schemas', () => {
     expect(() => settingsUpdateSchema.parse({ unknown: 1 })).toThrow();
     expect(() => settingsUpdateSchema.parse({ excludedPaths: [''] })).toThrow();
     expect(() => settingsUpdateSchema.parse({ scanDrives: ['C:\\Windows'] })).toThrow();
+    expect(() => settingsUpdateSchema.parse({ organizePriority: 'newest' })).toThrow();
   });
 });

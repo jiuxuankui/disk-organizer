@@ -106,7 +106,7 @@ function setup() {
     return { file, id: Number(result.lastInsertRowid), hash: digest(file) };
   }
   function plan(targetDir = output) {
-    return job.plan({ sourceDir, rules: [makeRule(targetDir)] });
+    return job.plan({ sourceDir, rules: [makeRule(targetDir)], priority: 'order' });
   }
   return { root, cross, sourceDir, output, trash, db, scanId, drive, deps, job, insert, plan };
 }

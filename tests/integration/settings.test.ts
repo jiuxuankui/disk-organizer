@@ -82,7 +82,30 @@ describe('settings persistence', () => {
       skipHiddenSystem: true,
       autoBackup: false,
       organizeRules: [],
+      organizePriority: 'order',
     });
+  });
+
+  it('defaults organizePriority to order for legacy settings and persists changes', () => {
+    const { filePath } = tempSettings();
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({
+        scanDrives: ['C:'],
+        excludedPaths: [],
+        skipHiddenSystem: true,
+        autoBackup: true,
+        organizeRules: [],
+      }),
+    );
+    const service = new SettingsService(filePath);
+    expect(service.load().organizePriority).toBe('order');
+
+    const updated = service.update({ organizePriority: 'sameDrive' });
+    expect(updated.organizePriority).toBe('sameDrive');
+    const onDisk = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    expect(onDisk.organizePriority).toBe('sameDrive');
   });
 
   it('leaves no temporary files behind', () => {

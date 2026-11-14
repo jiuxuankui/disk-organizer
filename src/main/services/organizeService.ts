@@ -96,7 +96,7 @@ export class OrganizeService {
     const reserved = new Set<string>();
     for (const { id } of ids) {
       const file = getFileById(this.deps.db, scanId, id)!;
-      const rule = chooseOrganizeRule(file, rules);
+      const rule = chooseOrganizeRule(file, rules, input.priority);
       if (!rule) continue;
       let target = path.join(rule.targetDir, file.name);
       const item: OrganizeItem = {
@@ -137,7 +137,7 @@ export class OrganizeService {
         item.allowed = true;
         item.message = item.crossDrive
           ? '跨盘：复制校验后回收原件，须确认'
-          : '同盘优先：直接移动，不重写文件内容';
+          : '同盘：直接移动，不重写文件内容';
         entries.push({ item, before, parent });
       } catch (error) {
         item.message = error instanceof Error ? error.message : String(error);

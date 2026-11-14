@@ -37,10 +37,13 @@ export const organizeRulesSchema = z
     (rules) => new Set(rules.map((rule) => rule.id)).size === rules.length,
     '规则编号不能重复',
   );
+export const organizePrioritySchema = z.enum(['order', 'sameDrive']);
+export type OrganizePriority = z.infer<typeof organizePrioritySchema>;
 export const organizePreviewSchema = z
   .object({
     sourceDir: localOrganizePath,
     rules: organizeRulesSchema,
+    priority: organizePrioritySchema,
   })
   .strict();
 export const organizeStartSchema = z

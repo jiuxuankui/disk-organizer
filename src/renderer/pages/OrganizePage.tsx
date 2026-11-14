@@ -11,6 +11,7 @@ import {
   List,
   Modal,
   Progress,
+  Segmented,
   Select,
   Space,
   Switch,
@@ -25,6 +26,7 @@ import {
   createPresetRule,
   ORGANIZE_PRESETS,
   type OrganizePreview,
+  type OrganizePriority,
   type OrganizeRule,
   type OrganizeState,
 } from '@shared/organize';
@@ -35,6 +37,8 @@ import { describeError, useAppStore } from '../store/useAppStore';
 
 export default function OrganizePage(): React.JSX.Element {
   const settings = useAppStore((store) => store.settings);
+  const savedRules = settings?.organizeRules ?? null;
+  const savedRulesKey = JSON.stringify(savedRules ?? []);
   const [rules, setRules] = useState<OrganizeRule[]>(() =>
     structuredClone(settings?.organizeRules ?? []),
   );
@@ -54,12 +58,15 @@ export default function OrganizePage(): React.JSX.Element {
   const { message } = App.useApp();
   const running = state?.status === 'running' || state?.status === 'cancelling';
   const locked = pending || running || state === null;
+  const priority: OrganizePriority = settings?.organizePriority ?? 'order';
   const crossCount =
     preview?.items.filter((item) => selected.includes(item.id) && item.crossDrive).length ?? 0;
 
   useEffect(() => {
-    if (settings) setRules(structuredClone(settings.organizeRules));
-  }, [settings]);
+    if (savedRules) setRules(structuredClone(savedRules));
+    // 仅当已保存规则内容变化时才重置草稿，避免切换优先级等其它设置改动覆盖未保存的规则。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedRulesKey]);
 
   useEffect(() => {
     previewRef.current = preview;
@@ -158,12 +165,26 @@ export default function OrganizePage(): React.JSX.Element {
       setPending(false);
     }
   }
+  async function changePriority(next: OrganizePriority): Promise<void> {
+    if (next === priority) return;
+    setPending(true);
+    setError('');
+    try {
+      const saved = await window.api.updateSettings({ organizePriority: next });
+      useAppStore.setState({ settings: saved });
+      invalidate();
+    } catch (cause) {
+      setError(describeError(cause));
+    } finally {
+      setPending(false);
+    }
+  }
   async function plan(): Promise<void> {
     setPending(true);
     setError('');
     invalidate();
     try {
-      setPreview(await window.api.previewOrganize({ sourceDir, rules }));
+      setPreview(await window.api.previewOrganize({ sourceDir, rules, priority }));
       setVisibleCount(ORGANIZE_PREVIEW_BATCH);
     } catch (cause) {
       setError(describeError(cause));
@@ -207,8 +228,8 @@ export default function OrganizePage(): React.JSX.Element {
         <Alert
           type="info"
           showIcon
-          message="同盘优先，跨盘须确认"
-          description="多条规则匹配时优先选择同盘目标（包括机械硬盘），再按规则顺序选择。跨盘串行复制并校验 SHA-256，成功后原件进入 Windows 回收站或长路径回收区；回收不可用时停止。只处理已扫描的文件，不移动文件夹。"
+          message="按所选优先级匹配规则，跨盘须确认"
+          description="命中多条规则时，可按规则顺序（取第一条）或同盘优先。跨盘串行复制并校验 SHA-256，成功后原件进入 Windows 回收站或长路径回收区；回收不可用时停止。只处理已扫描的文件，不移动文件夹。"
         />
         {error ? <Alert type="error" showIcon message={error} /> : null}
         <Card title="1. 整理范围">
@@ -280,8 +301,21 @@ export default function OrganizePage(): React.JSX.Element {
           }
         >
           <Typography.Paragraph type="secondary">
-            类型、扩展名和名称条件同时满足才匹配；扩展名和名称留空表示不限。同盘规则之间按从上到下的顺序匹配。所有规则指向同一个目标即可集中归档。“添加预设”可一键加入视频、图片、文档、音乐、压缩包、安装包规则，添加后只需选择目标文件夹。
+            类型、扩展名和名称条件同时满足才匹配；扩展名和名称留空表示不限。命中多条规则时按上方“规则优先级”选择：按规则顺序取第一条，或同盘优先。所有规则指向同一个目标即可集中归档。“添加预设”可一键加入视频、图片、文档、音乐、压缩包、安装包规则，添加后只需选择目标文件夹。
           </Typography.Paragraph>
+          <Space align="center" wrap>
+            <Typography.Text>命中多条规则时：</Typography.Text>
+            <Segmented
+              aria-label="规则优先级"
+              value={priority}
+              disabled={running}
+              options={[
+                { label: '按规则顺序', value: 'order' },
+                { label: '同盘优先', value: 'sameDrive' },
+              ]}
+              onChange={(value) => void changePriority(value as OrganizePriority)}
+            />
+          </Space>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             {rules.length === 0 ? (
               <Empty description="尚无归类规则，可用“添加预设”快速开始" />
@@ -314,6 +348,17 @@ export default function OrganizePage(): React.JSX.Element {
                         }}
                       >
                         上移
+                      </Button>
+                      <Button
+                        disabled={locked || index === rules.length - 1}
+                        onClick={() => {
+                          const next = [...rules];
+                          [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                          setRules(next);
+                          invalidate();
+                        }}
+                      >
+                        下移
                       </Button>
                       <Button
                         disabled={locked}
