@@ -669,7 +669,7 @@ export default function SettingsPage(): React.JSX.Element {
 
         <Card title="关于">
           <Descriptions column={1} size="small" bordered>
-            <Descriptions.Item label="版本">{appInfo?.version ?? '0.1.0'}</Descriptions.Item>
+            <Descriptions.Item label="版本">{appInfo?.version ?? '—'}</Descriptions.Item>
             <Descriptions.Item label="运行环境">
               Electron {appInfo?.electron ?? '—'} · Node {appInfo?.node ?? '—'}
             </Descriptions.Item>

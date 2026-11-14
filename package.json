@@ -1,6 +1,6 @@
 {
   "name": "disk-organizer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "本地硬盘整理工具",
   "main": "./out/main/index.js",
   "private": true,
@@ -13,20 +13,22 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "build": "npm run typecheck && electron-vite build",
-    "build:win": "npm run prepare:video && npm run build && electron-builder --win nsis",
+    "build:win": "npm run prepare:video && npm run build && electron-builder --win nsis && npm run release:bundle && npm run release:verify",
     "prepare:video": "node scripts/prepare-video-tools.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test",
     "seed:fixtures": "node scripts/generate-test-files.mjs",
     "seed:perf": "node scripts/perf-seed.mjs",
-    "perf:check": "npm run build && node scripts/perf-check.mjs"
+    "perf:check": "npm run build && node scripts/perf-check.mjs",
+    "release:bundle": "node scripts/release-bundle.mjs",
+    "release:verify": "node scripts/release-bundle.mjs --verify"
   },
   "build": {
     "appId": "com.local.diskorganizer",
     "productName": "硬盘整理",
     "directories": {
-      "output": "release",
+      "output": "release/${version}",
       "buildResources": "build"
     },
     "files": [
