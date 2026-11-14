@@ -875,3 +875,30 @@
   font-size: 12px;
   word-break: break-all;
 }
+
+.files-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.files-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 25%;
+  right: 3px;
+  bottom: 25%;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+}
+
+.files-resize-handle:hover::after,
+.files-resize-handle:focus-visible::after {
+  background: #1677ff;
+}

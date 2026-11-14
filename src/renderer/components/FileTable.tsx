@@ -1,18 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ThHTMLAttributes } from 'react';
 import { Button, Empty, Table, Tag, Tooltip, Typography } from 'antd';
 import type { TableProps } from 'antd';
 import { FolderOpenOutlined } from '@ant-design/icons';
 import type { FileRecord } from '@shared/types';
 import { FILE_TYPES, fileTypeLabel } from '@shared/fileTypes';
 import { formatBytes, formatCount, formatDateTime } from '@shared/format';
-import {
-  DEFAULT_FILE_SORT,
-  type FileSort,
-} from '../lib/filesFilter';
-import {
-  selectAllLoaded,
-  type FilesSelection,
-} from '../lib/filesSelection';
+import { DEFAULT_FILE_SORT, type FileSort } from '../lib/filesFilter';
+import { selectAllLoaded, type FilesSelection } from '../lib/filesSelection';
 
 export interface FileTableProps {
   items: FileRecord[];
@@ -31,8 +26,46 @@ export interface FileTableProps {
   onClearFilters(): void;
 }
 
+const NAME_MIN_WIDTH = 120;
+const NAME_MAX_WIDTH = 640;
+const NAME_DEFAULT_WIDTH = 220;
+
+interface ResizableHeaderCellProps extends ThHTMLAttributes<HTMLTableCellElement> {
+  width?: number | string;
+  onResize?: (event: React.MouseEvent) => void;
+}
+
+function ResizableHeaderCell({
+  width,
+  onResize,
+  children,
+  style,
+  ...rest
+}: ResizableHeaderCellProps): React.JSX.Element {
+  return (
+    <th {...rest} style={{ ...style, ...(width ? { width, position: 'relative' } : null) }}>
+      {children}
+      {onResize ? (
+        <span
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整名称列宽"
+          title="拖动调整名称列宽"
+          className="files-resize-handle"
+          onMouseDown={onResize}
+          onClick={(event) => event.stopPropagation()}
+        />
+      ) : null}
+    </th>
+  );
+}
+
 function typeColor(type: FileRecord['type']): string {
   return FILE_TYPES.find((item) => item.key === type)?.color ?? '#bfbfbf';
+}
+
+function clampNameWidth(width: number): number {
+  return Math.min(NAME_MAX_WIDTH, Math.max(NAME_MIN_WIDTH, Math.round(width)));
 }
 
 export default function FileTable({
@@ -53,6 +86,26 @@ export default function FileTable({
 }: FileTableProps): React.JSX.Element {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [bodyHeight, setBodyHeight] = useState(320);
+  const [nameWidth, setNameWidth] = useState(NAME_DEFAULT_WIDTH);
+
+  const startResize = useCallback(
+    (event: React.MouseEvent): void => {
+      event.preventDefault();
+      event.stopPropagation();
+      const startX = event.clientX;
+      const startWidth = nameWidth;
+      const onMove = (moveEvent: MouseEvent): void => {
+        setNameWidth(clampNameWidth(startWidth + moveEvent.clientX - startX));
+      };
+      const onUp = (): void => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+    [nameWidth],
+  );
 
   useEffect(() => {
     const element = wrapRef.current;
@@ -85,9 +138,7 @@ export default function FileTable({
       const target = event.target as HTMLElement | null;
       if (
         target &&
-        (target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.isContentEditable)
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
       ) {
         return;
       }
@@ -108,8 +159,9 @@ export default function FileTable({
       key: 'name',
       title: '名称',
       dataIndex: 'name',
-      width: 220,
+      width: nameWidth,
       sorter: true,
+      onHeaderCell: () => ({ width: nameWidth, onResize: startResize }),
       sortOrder: orderFor('name'),
       ellipsis: { showTitle: false },
       render: (_value, record) => (
@@ -219,9 +271,7 @@ export default function FileTable({
       return;
     }
     const key =
-      active.columnKey === 'name' ||
-      active.columnKey === 'type' ||
-      active.columnKey === 'mtime'
+      active.columnKey === 'name' || active.columnKey === 'type' || active.columnKey === 'mtime'
         ? active.columnKey
         : 'size';
     onSortChange({
@@ -243,7 +293,8 @@ export default function FileTable({
         pagination={false}
         rowSelection={rowSelection}
         onChange={handleTableChange}
-        scroll={{ x: 888, y: Math.max(220, bodyHeight - 42) }}
+        components={{ header: { cell: ResizableHeaderCell } }}
+        scroll={{ x: 668 + nameWidth, y: Math.max(220, bodyHeight - 42) }}
         rowClassName="file-row"
         onRow={(record) => ({
           onClick: (event) => {
@@ -260,9 +311,7 @@ export default function FileTable({
           emptyText: loading ? null : (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={
-                hasActiveFilters ? '没有符合条件的文件' : '索引中还没有文件'
-              }
+              description={hasActiveFilters ? '没有符合条件的文件' : '索引中还没有文件'}
             >
               {hasActiveFilters ? <Button onClick={onClearFilters}>清空筛选</Button> : null}
             </Empty>

@@ -63,9 +63,7 @@ async function waitModalTitle(title: string): Promise<void> {
   await page.waitForFunction(
     (expected) => {
       const titles = [
-        ...document.querySelectorAll<HTMLElement>(
-          '.ant-modal-title, .ant-modal-confirm-title',
-        ),
+        ...document.querySelectorAll<HTMLElement>('.ant-modal-title, .ant-modal-confirm-title'),
       ];
       return titles.some(
         (element) => element.offsetParent !== null && element.textContent.trim() === expected,
@@ -119,6 +117,26 @@ test('全部文件页支持筛选、搜索和详情抽屉', async () => {
   await navTo('全部文件');
   await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(7);
 
+  const nameHeader = page
+    .locator('.files-panel .ant-table-thead th')
+    .filter({ hasText: '名称' })
+    .first();
+  const resizeHandle = nameHeader.locator('.files-resize-handle');
+  const beforeResize = await nameHeader.boundingBox();
+  const handleBox = await resizeHandle.boundingBox();
+  expect(beforeResize).not.toBeNull();
+  expect(handleBox).not.toBeNull();
+  await page.mouse.move(handleBox!.x + handleBox!.width / 2, handleBox!.y + handleBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    handleBox!.x + handleBox!.width / 2 + 90,
+    handleBox!.y + handleBox!.height / 2,
+    { steps: 5 },
+  );
+  await page.mouse.up();
+  const afterResize = await nameHeader.boundingBox();
+  expect(afterResize!.width).toBeGreaterThan(beforeResize!.width + 50);
+
   await page.locator('.files-search input').fill('cat-');
   await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(3);
   await page.locator('.files-search input').fill('');
@@ -163,9 +181,7 @@ test('删除预览默认取消，确认后进入假回收站并刷新列表', as
     (document.activeElement?.textContent ?? '').replace(/\s+/g, ''),
   );
   expect(activeText).toBe('取消');
-  await visibleModal()
-    .locator('.ant-modal-footer button:not(.ant-btn-dangerous)')
-    .click();
+  await visibleModal().locator('.ant-modal-footer button:not(.ant-btn-dangerous)').click();
   await page.waitForSelector('.ant-modal:visible', { state: 'detached', timeout: 10000 });
   expect(fs.existsSync(deleteMe)).toBe(true);
 
