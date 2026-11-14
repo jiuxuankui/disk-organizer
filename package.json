@@ -1,7 +1,8 @@
 {
   "name": "disk-organizer",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "本地硬盘整理工具",
+  "author": "九轩葵",
   "main": "./out/main/index.js",
   "private": true,
   "license": "UNLICENSED",
@@ -68,7 +69,7 @@
       "perMachine": false,
       "allowElevation": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": false,
+      "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "硬盘整理",
       "deleteAppDataOnUninstall": false,
