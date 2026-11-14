@@ -122,10 +122,7 @@ export function folderSelectionKey(folder: FolderFilter | null): string {
   return folder ? `${folder.scope}:${folder.path}` : 'all';
 }
 
-export function folderFromSelectionKey(
-  folders: FolderFacet[],
-  key: string,
-): FolderFilter | null {
+export function folderFromSelectionKey(folders: FolderFacet[], key: string): FolderFilter | null {
   if (key === 'all') return null;
   const match = folders.find((folder) => `root:${folder.path}` === key);
   return match ? { path: match.path, scope: 'root' } : null;
@@ -134,6 +131,21 @@ export function folderFromSelectionKey(
 export function folderFromDirectory(path: string): FolderFilter | null {
   const trimmed = path.trim().replace(/\//g, '\\').replace(/\\+$/, '');
   return trimmed ? { path: trimmed, scope: 'dir' } : null;
+}
+
+export function typeFilterKey(filters: FilesFilters): string {
+  return filters.folder ? folderSelectionKey(filters.folder) : (filters.type ?? 'all');
+}
+
+export function applyTypeFilterValue(value: string, folders: FolderFacet[]): Partial<FilesFilters> {
+  if (value === 'all') return { type: null, folder: null };
+  if (value.startsWith('root:')) {
+    const folder = folderFromSelectionKey(folders, value);
+    if (!folder) return { folder: null, type: null };
+    const owner = folders.find((item) => item.path === folder.path);
+    return { folder, type: null, ...(owner ? { drive: owner.drive } : {}) };
+  }
+  return { type: value as FileTypeKey, folder: null };
 }
 
 export function filtersFromPrefill(prefill: {
@@ -152,10 +164,7 @@ export function filtersFromPrefill(prefill: {
   };
 }
 
-export function withoutFilter(
-  filters: FilesFilters,
-  key: FilterTag['key'],
-): FilesFilters {
+export function withoutFilter(filters: FilesFilters, key: FilterTag['key']): FilesFilters {
   switch (key) {
     case 'drive':
       return { ...filters, drive: null };
@@ -181,8 +190,7 @@ export function buildFileQuery(options: {
 }): FileQuery {
   const { filters, sort, search, page, pageSize } = options;
   const folder = filters.folder;
-  const rootDir =
-    folder?.scope === 'root' ? (firstLevelFolder(folder.path) ?? null) : null;
+  const rootDir = folder?.scope === 'root' ? (firstLevelFolder(folder.path) ?? null) : null;
   return {
     drive: filters.drive,
     type: filters.type,

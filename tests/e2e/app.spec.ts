@@ -149,16 +149,16 @@ test('全部文件页支持筛选、搜索和详情抽屉', async () => {
   await page.locator('.ant-select-item-option[title="全部类型"]').click();
   await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(7);
 
-  await page.locator('.files-select-folder').click();
+  await page.locator('.files-select').nth(1).click();
+  await page.locator('.ant-select-dropdown:visible .rc-virtual-list-holder').evaluate((el) => {
+    (el as HTMLElement).scrollTop = (el as HTMLElement).scrollHeight;
+  });
   await page
     .locator('.ant-select-dropdown:visible .ant-select-item-option', { hasText: 'photos' })
     .first()
     .click();
   await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(3);
-  await page.locator('.files-select-folder').click();
-  await page
-    .locator('.ant-select-dropdown:visible .ant-select-item-option[title="全部文件夹"]')
-    .click();
+  await page.getByRole('button', { name: '清除筛选', exact: true }).click();
   await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(7);
 
   await page

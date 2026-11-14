@@ -3,6 +3,7 @@ import {
   activeFilterTags,
   applySizePreset,
   applyTimePreset,
+  applyTypeFilterValue,
   buildFileQuery,
   DEFAULT_FILE_SORT,
   DEFAULT_FILES_FILTERS,
@@ -17,6 +18,7 @@ import {
   hasActiveFilters,
   SIZE_PRESETS,
   sizePresetKey,
+  typeFilterKey,
   withoutFilter,
   type FilesFilters,
 } from '../../src/renderer/lib/filesFilter';
@@ -111,9 +113,7 @@ describe('files filter helpers', () => {
   });
 
   it('parses drilldown prefill into filters', () => {
-    expect(
-      filtersFromPrefill({ drive: 'C:', type: 'image', rootPath: 'C:\\Pics' }),
-    ).toMatchObject({
+    expect(filtersFromPrefill({ drive: 'C:', type: 'image', rootPath: 'C:\\Pics' })).toMatchObject({
       drive: 'C:',
       type: 'image',
       folder: { path: 'C:\\Pics', scope: 'root' },
@@ -138,15 +138,37 @@ describe('files filter helpers', () => {
       { drive: 'D:', path: 'D:\\Backup', name: 'Backup', bytes: 2000, count: 1 },
     ];
     expect(folderSelectionKey(null)).toBe('all');
-    expect(folderSelectionKey({ path: 'C:\\Movies', scope: 'root' })).toBe(
-      'root:C:\\Movies',
-    );
+    expect(folderSelectionKey({ path: 'C:\\Movies', scope: 'root' })).toBe('root:C:\\Movies');
     expect(folderFromSelectionKey(folders, 'root:C:\\Movies')).toEqual({
       path: 'C:\\Movies',
       scope: 'root',
     });
     expect(folderFromSelectionKey(folders, 'all')).toBeNull();
     expect(folderFromSelectionKey(folders, 'root:C:\\Missing')).toBeNull();
+  });
+
+  it('merges the folder filter into the type dropdown value', () => {
+    const folders = [
+      { drive: 'C:', path: 'C:\\Movies', name: 'Movies', bytes: 1200, count: 3 },
+      { drive: 'D:', path: 'D:\\Backup', name: 'Backup', bytes: 2000, count: 1 },
+    ];
+    expect(typeFilterKey(DEFAULT_FILES_FILTERS)).toBe('all');
+    expect(typeFilterKey({ ...DEFAULT_FILES_FILTERS, type: 'video' })).toBe('video');
+    expect(
+      typeFilterKey({ ...DEFAULT_FILES_FILTERS, folder: { path: 'C:\\Movies', scope: 'root' } }),
+    ).toBe('root:C:\\Movies');
+
+    expect(applyTypeFilterValue('all', folders)).toEqual({ type: null, folder: null });
+    expect(applyTypeFilterValue('video', folders)).toEqual({ type: 'video', folder: null });
+    expect(applyTypeFilterValue('root:C:\\Movies', folders)).toEqual({
+      folder: { path: 'C:\\Movies', scope: 'root' },
+      type: null,
+      drive: 'C:',
+    });
+    expect(applyTypeFilterValue('root:C:\\Missing', folders)).toEqual({
+      folder: null,
+      type: null,
+    });
   });
 
   it('applies size and time presets', () => {

@@ -3,19 +3,19 @@ import { App as AntApp, Button, Input, Modal, Select, Space, Tag, Typography } f
 import type { InputNumberProps } from 'antd';
 import { InputNumber } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
-import type { FileTypeKey, FolderFacet } from '@shared/types';
+import type { FolderFacet } from '@shared/types';
 import { FILE_TYPES } from '@shared/fileTypes';
 import { formatCount } from '@shared/format';
 import {
   activeFilterTags,
   applySizePreset,
   applyTimePreset,
-  folderFromSelectionKey,
-  folderSelectionKey,
+  applyTypeFilterValue,
   hasActiveFilters,
   SIZE_PRESETS,
   sizePresetKey,
   TIME_PRESETS,
+  typeFilterKey,
   type FilesFilters,
   type FilterTag,
 } from '../lib/filesFilter';
@@ -59,7 +59,7 @@ export default function FilesToolbar({
 
   const tags = activeFilterTags(filters, searchInput);
   const sizeKey = sizePresetKey(filters.minSize, filters.maxSize);
-  const folderKey = folderSelectionKey(filters.folder);
+  const typeKey = typeFilterKey(filters);
   const visibleFolders = filters.drive
     ? folders.filter((folder) => folder.drive === filters.drive)
     : folders;
@@ -68,12 +68,9 @@ export default function FilesToolbar({
     label: `${folder.drive} ${folder.name}（${formatCount(folder.count)} 个）`,
     title: folder.path,
   }));
-  if (
-    filters.folder &&
-    !folderOptions.some((option) => option.value === folderKey)
-  ) {
+  if (filters.folder && !folderOptions.some((option) => option.value === typeKey)) {
     folderOptions.unshift({
-      value: folderKey,
+      value: typeKey,
       label: filters.folder.path,
       title: filters.folder.path,
     });
@@ -121,27 +118,14 @@ export default function FilesToolbar({
           ]}
         />
         <Select
-          value={filters.type ?? 'all'}
+          value={typeKey}
           className="files-select"
-          onChange={(value) =>
-            onFiltersChange({ type: value === 'all' ? null : (value as FileTypeKey) })
-          }
+          onChange={(value) => onFiltersChange(applyTypeFilterValue(value, visibleFolders))}
           options={[
             { value: 'all', label: '全部类型' },
             ...FILE_TYPES.map((item) => ({ value: item.key, label: item.label })),
+            { label: '文件夹', options: folderOptions },
           ]}
-        />
-        <Select
-          value={folderKey}
-          className="files-select files-select-folder"
-          onChange={(value) => {
-            const folder = folderFromSelectionKey(visibleFolders, value);
-            const owner = folder
-              ? visibleFolders.find((item) => item.path === folder.path)
-              : null;
-            onFiltersChange(owner ? { folder, drive: owner.drive } : { folder });
-          }}
-          options={[{ value: 'all', label: '全部文件夹' }, ...folderOptions]}
         />
         <Select
           value={sizeKey}
@@ -195,9 +179,7 @@ export default function FilesToolbar({
         destroyOnHidden
       >
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          <Typography.Text type="secondary">
-            留空表示不限制该端，输入单位为 MB。
-          </Typography.Text>
+          <Typography.Text type="secondary">留空表示不限制该端，输入单位为 MB。</Typography.Text>
           <Space>
             <SizeInput label="最小" value={customMin} onChange={setCustomMin} />
             <SizeInput label="最大" value={customMax} onChange={setCustomMax} />
