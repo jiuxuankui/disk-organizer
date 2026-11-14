@@ -91,12 +91,17 @@ function cacheValid(row: HashCacheRow | undefined, candidate: CandidateRow): boo
   );
 }
 
-function emptyState(scanId: number | null, minSize: number): DuplicatesState {
+function emptyState(
+  scanId: number | null,
+  minSize: number,
+  drives: string[] = [],
+): DuplicatesState {
   return {
     runId: null,
     scanId,
     status: 'idle',
     stage: null,
+    drives,
     minSize,
     quickChecked: 0,
     quickTotal: 0,
@@ -146,19 +151,36 @@ export class DuplicatesService {
     this.state = this.readPersistedState();
   }
 
+  private scanDriveLetters(scanId: number): string[] {
+    const rows = this.db
+      .prepare('SELECT DISTINCT drive FROM files WHERE scan_id = ? ORDER BY drive')
+      .all(scanId) as Array<{ drive: string }>;
+    return rows.map((row) => row.drive);
+  }
+
+  private availableDrives(scanId: number, summaryDrives: string[]): string[] {
+    const indexed = this.scanDriveLetters(scanId);
+    if (indexed.length > 0) return indexed;
+    return summaryDrives.filter((drive) => /^[A-Za-z]:?$/.test(drive));
+  }
+
   private readPersistedState(): DuplicatesState {
     const activeScanId = getActiveScanId(this.db);
     const defaultMinSize = this.getDefaultMinSize();
     if (activeScanId === null) return emptyState(null, defaultMinSize);
 
     const latest = getLatestDuplicateRun(this.db);
-    if (!latest) return emptyState(activeScanId, defaultMinSize);
+    const summary = getActiveScanSummary(this.db);
+    const scanDrives = this.availableDrives(activeScanId, summary?.drives ?? []);
+    if (!latest) return emptyState(activeScanId, defaultMinSize, scanDrives);
 
+    const runDrives = latest.drives.length > 0 ? latest.drives : scanDrives;
     const base: DuplicatesState = {
       runId: latest.id,
       scanId: latest.scanId,
       status: latest.status === 'running' ? 'cancelled' : 'completed',
       stage: null,
+      drives: runDrives,
       minSize: latest.minSize,
       quickChecked: 0,
       quickTotal: 0,
@@ -233,19 +255,35 @@ export class DuplicatesService {
     this.state = this.readPersistedState();
   }
 
-  start(): DuplicatesState {
+  private resolveDrives(requested: string[] | undefined, available: string[]): string[] {
+    if (requested === undefined) return [...available];
+    const allowed = new Set(available.map((drive) => drive.toUpperCase()));
+    const unique = [...new Set(requested.map((drive) => drive.trim().toUpperCase()))];
+    if (unique.length === 0) throw new Error('请至少选择一块硬盘');
+    const unknown = unique.filter((drive) => !allowed.has(drive));
+    if (unknown.length > 0) {
+      throw new Error(`所选硬盘不在本次扫描范围内：${unknown.join('、')}`);
+    }
+    return unique;
+  }
+
+  start(drives?: string[]): DuplicatesState {
     if (this.active) throw new Error('已有重复查找正在进行');
     const summary = getActiveScanSummary(this.db);
     if (!summary) throw new Error('还没有可用的扫描数据，请先完成一次扫描');
 
+    const selectedDrives = this.resolveDrives(
+      drives,
+      this.availableDrives(summary.id, summary.drives),
+    );
     const minSize = Math.max(0, Math.floor(this.getDefaultMinSize()));
     clearDuplicateRuns(this.db);
-    const runId = createDuplicateRun(this.db, summary.id, minSize, this.now());
+    const runId = createDuplicateRun(this.db, summary.id, minSize, this.now(), selectedDrives);
     const controller = new AbortController();
     this.active = { runId, scanId: summary.id, controller, finishing: false };
 
     this.state = {
-      ...emptyState(summary.id, minSize),
+      ...emptyState(summary.id, minSize, selectedDrives),
       runId,
       status: 'running',
       stage: 'quick',
@@ -257,9 +295,9 @@ export class DuplicatesService {
     this.idlePromise = new Promise<void>((resolve) => {
       this.idleResolve = resolve;
     });
-    void this.execute(runId, summary.id, minSize, controller.signal).finally(() =>
-      this.finishIdle(),
-    );
+    void this
+      .execute(runId, summary.id, minSize, selectedDrives, controller.signal)
+      .finally(() => this.finishIdle());
     return this.getState();
   }
 
@@ -275,10 +313,13 @@ export class DuplicatesService {
     runId: number,
     scanId: number,
     minSize: number,
+    drives: string[],
     signal: AbortSignal,
   ): Promise<void> {
     try {
-      const candidates = dedupeHardLinks(listDuplicateCandidates(this.db, scanId, minSize));
+      const candidates = dedupeHardLinks(
+        listDuplicateCandidates(this.db, scanId, minSize, drives),
+      );
       this.state = {
         ...this.state,
         quickTotal: candidates.length,
@@ -478,7 +519,7 @@ export class DuplicatesService {
 
       const finishedAt = this.now();
       this.state = {
-        ...emptyState(scanId, minSize),
+        ...emptyState(scanId, minSize, drives),
         runId,
         status: 'completed',
         quickChecked: candidates.length,

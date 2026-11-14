@@ -50,6 +50,12 @@ export const fileIdSchema = z
   })
   .strict();
 
+export const duplicatesStartSchema = z
+  .object({
+    drives: z.array(driveLetterSchema).min(1, '请至少选择一块硬盘').max(26).optional(),
+  })
+  .strict();
+
 export const duplicateQuerySchema = z
   .object({
     minSize: z.number().int().nonnegative().max(16 * 1024 ** 4).default(0),
@@ -98,6 +104,7 @@ export type DeleteFilesPayload = z.infer<typeof deleteFilesSchema>;
 export type SettingsUpdatePayload = z.infer<typeof settingsUpdateSchema>;
 
 export type ScanStartPayload = z.infer<typeof scanStartSchema>;
+export type DuplicatesStartPayload = z.infer<typeof duplicatesStartSchema>;
 export type FileQueryPayload = z.infer<typeof fileQuerySchema>;
 export type DuplicateQueryPayload = z.infer<typeof duplicateQuerySchema>;
 

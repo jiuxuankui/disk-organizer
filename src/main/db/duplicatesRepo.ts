@@ -12,6 +12,7 @@ export interface DuplicateRunRecord {
   id: number;
   scanId: number;
   status: string;
+  drives: string[];
   minSize: number;
   createdAt: number;
   finishedAt: number | null;
@@ -24,6 +25,7 @@ interface RunRow {
   id: number;
   scan_id: number;
   status: string;
+  drives_json: string;
   min_size: number;
   created_at: number;
   finished_at: number | null;
@@ -59,11 +61,22 @@ export interface DuplicateGroupInput {
   }>;
 }
 
+function parseDrives(value: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is string => typeof item === 'string');
+  } catch {
+    return [];
+  }
+}
+
 function mapRun(row: RunRow): DuplicateRunRecord {
   return {
     id: row.id,
     scanId: row.scan_id,
     status: row.status,
+    drives: parseDrives(row.drives_json),
     minSize: row.min_size,
     createdAt: row.created_at,
     finishedAt: row.finished_at,
@@ -77,21 +90,33 @@ export function listDuplicateCandidates(
   db: DatabaseSync,
   scanId: number,
   minSize: number,
+  drives?: string[],
 ): CandidateRow[] {
   const threshold = Math.max(0, Math.floor(minSize));
+  if (drives !== undefined && drives.length === 0) return [];
+  const driveClause =
+    drives !== undefined ? ` AND drive IN (${drives.map(() => '?').join(', ')})` : '';
+  const driveParams = drives ?? [];
   return db
     .prepare(
       `SELECT id, drive, path, path_key, name, ext, type, size, mtime_ms, volume_id, file_id
        FROM files
-       WHERE scan_id = ? AND size > 0 AND size >= ?
+       WHERE scan_id = ? AND size > 0 AND size >= ?${driveClause}
          AND size IN (
            SELECT size FROM files
-           WHERE scan_id = ? AND size > 0 AND size >= ?
+           WHERE scan_id = ? AND size > 0 AND size >= ?${driveClause}
            GROUP BY size HAVING COUNT(*) >= 2
          )
        ORDER BY size DESC, path_key ASC`,
     )
-    .all(scanId, threshold, scanId, threshold) as unknown as CandidateRow[];
+    .all(
+      scanId,
+      threshold,
+      ...driveParams,
+      scanId,
+      threshold,
+      ...driveParams,
+    ) as unknown as CandidateRow[];
 }
 
 export function clearDuplicateRuns(db: DatabaseSync): void {
@@ -110,10 +135,13 @@ export function createDuplicateRun(
   scanId: number,
   minSize: number,
   now: number,
+  drives: string[],
 ): number {
   const result = db
-    .prepare("INSERT INTO duplicate_runs (scan_id, status, min_size, created_at) VALUES (?, 'running', ?, ?)")
-    .run(scanId, minSize, now);
+    .prepare(
+      "INSERT INTO duplicate_runs (scan_id, status, drives_json, min_size, created_at) VALUES (?, 'running', ?, ?, ?)",
+    )
+    .run(scanId, JSON.stringify(drives), minSize, now);
   return Number(result.lastInsertRowid);
 }
 

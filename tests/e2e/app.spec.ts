@@ -173,12 +173,16 @@ test('删除预览默认取消，确认后进入假回收站并刷新列表', as
 
 test('重复文件支持建议勾选和整组删除警告', async () => {
   await navTo('重复文件');
+  const scopeSelect = page.locator('.duplicates-page .dup-scope-select');
+  await expect(scopeSelect).toBeVisible();
+  await expect(scopeSelect).toContainText('C:');
   await page
     .locator('.duplicates-page button')
     .filter({ hasText: '开始查找' })
     .first()
     .click();
   await expect(page.locator('.dup-summary')).toBeVisible({ timeout: 180000 });
+  await expect(page.locator('.dup-scope-summary')).toContainText('本次查找范围：C:');
   await expect(page.locator('.dup-group')).toHaveCount(1);
 
   await page.locator('.dup-group-head').first().click();

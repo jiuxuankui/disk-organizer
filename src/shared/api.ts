@@ -41,7 +41,7 @@ export interface DiskOrganizerApi {
   listFileIds(query: FileQuery): Promise<number[]>;
   getFile(id: number): Promise<FileRecord | null>;
   getDuplicatesState(): Promise<DuplicatesState>;
-  startDuplicates(): Promise<DuplicatesState>;
+  startDuplicates(drives?: string[]): Promise<DuplicatesState>;
   cancelDuplicates(): Promise<DuplicatesState>;
   queryDuplicateGroups(query: DuplicateQuery): Promise<DuplicateGroupPage>;
   getScanState(): Promise<ScanProgress>;

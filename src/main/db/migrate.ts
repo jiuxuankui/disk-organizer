@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import initSql from './migrations/001_init.sql?raw';
 import overviewIndexSql from './migrations/002_overview_index.sql?raw';
+import duplicateRunDrivesSql from './migrations/003_duplicate_run_drives.sql?raw';
 
 export interface Migration {
   version: number;
@@ -12,6 +13,7 @@ export interface Migration {
 export const MIGRATIONS: Migration[] = [
   { version: 1, sql: initSql },
   { version: 2, sql: overviewIndexSql },
+  { version: 3, sql: duplicateRunDrivesSql },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

@@ -176,6 +176,7 @@ export interface DuplicatesState {
   scanId: number | null;
   status: DuplicateRunStatus;
   stage: 'quick' | 'full' | null;
+  drives: string[];
   minSize: number;
   quickChecked: number;
   quickTotal: number;

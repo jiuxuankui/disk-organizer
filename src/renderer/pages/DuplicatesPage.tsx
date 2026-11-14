@@ -6,6 +6,8 @@ import {
   Empty,
   Pagination,
   Progress,
+  Select,
+  Space,
   Spin,
   Typography,
 } from 'antd';
@@ -74,7 +76,12 @@ export default function DuplicatesPage(): React.JSX.Element {
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [sizes, setSizes] = useState<Map<number, number>>(() => new Map());
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  const [scopeOverride, setScopeOverride] = useState<string[] | null>(null);
   const groupsRequest = useRef(0);
+
+  useEffect(() => {
+    setScopeOverride(null);
+  }, [scanId]);
 
   useEffect(() => {
     let active = true;
@@ -181,6 +188,33 @@ export default function DuplicatesPage(): React.JSX.Element {
     };
   }, [query, dupState?.status, dupState?.runId, dataVersion, pushNotice]);
 
+  const scannedDrives = useMemo(() => {
+    if (!overview) return [];
+    const known = new Map(overview.drives.map((drive) => [drive.drive, drive]));
+    const letters = new Set<string>();
+    for (const root of overview.scan?.drives ?? []) {
+      const match = /^([A-Za-z]):(?:[\\/].*)?$/.exec(root);
+      if (match) letters.add(`${match[1].toUpperCase()}:`);
+    }
+    if (letters.size === 0) {
+      for (const drive of overview.drives) letters.add(drive.drive);
+    }
+    return [...letters].sort().map((letter) => {
+      const drive = known.get(letter);
+      return {
+        drive: letter,
+        label: drive?.label ?? '',
+        online: drive?.online ?? false,
+      };
+    });
+  }, [overview]);
+
+  const allDriveLetters = useMemo(
+    () => scannedDrives.map((drive) => drive.drive),
+    [scannedDrives],
+  );
+  const scopeDrives = scopeOverride ?? allDriveLetters;
+
   const refreshState = useCallback(async (): Promise<void> => {
     try {
       setDupState(await window.api.getDuplicatesState());
@@ -190,9 +224,13 @@ export default function DuplicatesPage(): React.JSX.Element {
   }, [pushNotice]);
 
   const handleStart = async (): Promise<void> => {
+    if (scopeDrives.length === 0) {
+      pushNotice('warning', '请至少选择一块要查找的硬盘');
+      return;
+    }
     setStarting(true);
     try {
-      const state = await window.api.startDuplicates();
+      const state = await window.api.startDuplicates(scopeDrives);
       setDupState(state);
       setSelected(new Set());
       setSizes(new Map());
@@ -277,17 +315,6 @@ export default function DuplicatesPage(): React.JSX.Element {
   const selectedSummary = selectionSummary(selected, sizes);
   const wholeGroups = selectedGroupCount(groups, selected);
 
-  const scannedDrives = useMemo(() => {
-    if (!overview) return [];
-    const letters = overview.scan?.drives ?? [];
-    const scanned = overview.drives.filter((drive) => letters.includes(drive.drive));
-    return (scanned.length > 0 ? scanned : overview.drives).map((drive) => ({
-      drive: drive.drive,
-      label: drive.label,
-      online: drive.online,
-    }));
-  }, [overview]);
-
   if (!overview?.scan) {
     return (
       <div className="duplicates-page">
@@ -303,17 +330,39 @@ export default function DuplicatesPage(): React.JSX.Element {
     );
   }
 
-  const startButton = (
-    <Button
-      type="primary"
-      loading={starting}
-      disabled={scanning}
-      onClick={() => void handleStart()}
-    >
-      {dupState?.status === 'completed' || dupState?.status === 'stale'
-        ? '重新查找'
-        : '开始查找'}
-    </Button>
+  const scopeSelect = (
+    <Space size={8} wrap>
+      <Typography.Text type="secondary">查找范围</Typography.Text>
+      <Select
+        mode="multiple"
+        className="dup-scope-select"
+        value={scopeDrives}
+        onChange={(values: string[]) => setScopeOverride(values)}
+        options={scannedDrives.map((drive) => ({
+          value: drive.drive,
+          label: `${drive.drive}${drive.label ? ` ${drive.label}` : ''}${drive.online ? '' : '（未连接）'}`,
+        }))}
+        placeholder="请选择要查找的硬盘"
+        maxTagCount="responsive"
+        disabled={starting}
+      />
+    </Space>
+  );
+
+  const startControls = (
+    <Space size={12} wrap>
+      {scopeSelect}
+      <Button
+        type="primary"
+        loading={starting}
+        disabled={scanning || scopeDrives.length === 0}
+        onClick={() => void handleStart()}
+      >
+        {dupState?.status === 'completed' || dupState?.status === 'stale'
+          ? '重新查找'
+          : '开始查找'}
+      </Button>
+    </Space>
   );
 
   const renderStatePanel = (): React.JSX.Element => {
@@ -355,6 +404,10 @@ export default function DuplicatesPage(): React.JSX.Element {
             <Typography.Text type="secondary" className="panel-note">
               先按大小初筛，再比对内容；0 字节文件、符号链接和同一文件的硬链接不会计入。
             </Typography.Text>
+            <Typography.Text type="secondary" className="panel-note">
+              查找范围：
+              {dupState.drives.length > 0 ? dupState.drives.join('、') : '全部已扫描硬盘'}
+            </Typography.Text>
             <Button loading={cancelling} onClick={() => void handleCancel()}>
               取消查找
             </Button>
@@ -372,7 +425,7 @@ export default function DuplicatesPage(): React.JSX.Element {
             message="索引已更新，需要重新查找重复文件"
             description="上次的重复文件结果基于旧索引，已全部作废，不能直接用于删除。"
           />
-          <div className="dup-state-actions">{startButton}</div>
+          <div className="dup-state-actions">{startControls}</div>
         </Card>
       );
     }
@@ -386,7 +439,7 @@ export default function DuplicatesPage(): React.JSX.Element {
             message="已取消重复查找，未保留中间结果"
             description="可以随时重新查找，已有的扫描索引不受影响。"
           />
-          <div className="dup-state-actions">{startButton}</div>
+          <div className="dup-state-actions">{startControls}</div>
         </Card>
       );
     }
@@ -400,7 +453,7 @@ export default function DuplicatesPage(): React.JSX.Element {
             message="重复查找失败"
             description={dupState.error ?? '发生未知错误，请重试。'}
           />
-          <div className="dup-state-actions">{startButton}</div>
+          <div className="dup-state-actions">{startControls}</div>
         </Card>
       );
     }
@@ -412,7 +465,7 @@ export default function DuplicatesPage(): React.JSX.Element {
             将按文件大小初筛，再比对内容指纹；文件名不同不影响归组。0 字节文件和硬链接会跳过。
             当前最小体积为 {formatBytes(dupState.minSize || defaultMin)}。
           </Typography.Paragraph>
-          {startButton}
+          {startControls}
         </Empty>
       </Card>
     );
@@ -444,7 +497,18 @@ export default function DuplicatesPage(): React.JSX.Element {
                 <strong>{formatCount(dupState.files)}</strong> 个重复文件，可释放{' '}
                 <strong>{formatBytes(dupState.reclaimableBytes)}</strong>
               </Typography.Text>
-              {startButton}
+              {startControls}
+            </div>
+            <div className="dup-scope-summary">
+              <Typography.Text type="secondary">
+                本次查找范围：
+                {dupState.drives.length > 0 ? dupState.drives.join('、') : '全部已扫描硬盘'}
+              </Typography.Text>
+              {dupState.drives.length > 0 && dupState.drives.length < allDriveLetters.length ? (
+                <Typography.Text type="warning">
+                  范围外的已扫描硬盘未参与本次比对
+                </Typography.Text>
+              ) : null}
             </div>
             <DuplicatesToolbar
               filters={filters}

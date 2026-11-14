@@ -868,6 +868,18 @@
   width: 190px;
 }
 
+.dup-scope-select {
+  width: 280px;
+}
+
+.dup-scope-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
 .dup-toolbar-spacer {
   flex: 1;
 }

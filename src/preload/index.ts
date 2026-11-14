@@ -12,7 +12,7 @@ const api: DiskOrganizerApi = {
   listFileIds: (query: FileQuery) => ipcRenderer.invoke(IPC.filesListIds, query),
   getFile: (id: number) => ipcRenderer.invoke(IPC.filesGet, { id }),
   getDuplicatesState: () => ipcRenderer.invoke(IPC.duplicatesState),
-  startDuplicates: () => ipcRenderer.invoke(IPC.duplicatesStart),
+  startDuplicates: (drives?: string[]) => ipcRenderer.invoke(IPC.duplicatesStart, { drives }),
   cancelDuplicates: () => ipcRenderer.invoke(IPC.duplicatesCancel),
   queryDuplicateGroups: (query: DuplicateQuery) =>
     ipcRenderer.invoke(IPC.duplicatesGroups, query),

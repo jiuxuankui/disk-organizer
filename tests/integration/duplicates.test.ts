@@ -14,6 +14,7 @@ import {
 } from '../../src/main/db/scansRepo';
 import { normalizePathKey } from '../../src/main/services/filesystem';
 import { DuplicatesService } from '../../src/main/services/duplicatesService';
+import { listDuplicateCandidates } from '../../src/main/db/duplicatesRepo';
 import {
   createInlineHashRunner,
   HashCancelledError,
@@ -263,6 +264,89 @@ describe('duplicate detection', () => {
       expect(restored.total).toBe(3);
       expect(restored.totalFiles).toBe(7);
       expect(restored.reclaimableBytes).toBe(293_600);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('lists duplicate candidates only from the selected drives', () => {
+    const { db, scanId, files } = seed();
+    try {
+      const allPaths = new Set(listDuplicateCandidates(db, scanId, 0).map((row) => row.path));
+      expect(allPaths.has(files.crossX.path)).toBe(true);
+
+      const cOnly = listDuplicateCandidates(db, scanId, 0, ['C:']);
+      expect(cOnly.length).toBeGreaterThan(0);
+      expect(cOnly.every((row) => row.drive === 'C:')).toBe(true);
+      const cPaths = new Set(cOnly.map((row) => row.path));
+      expect(cPaths.has(files.sameA.path)).toBe(true);
+      expect(cPaths.has(files.crossX.path)).toBe(false);
+
+      expect(listDuplicateCandidates(db, scanId, 0, ['X:'])).toHaveLength(0);
+      expect(listDuplicateCandidates(db, scanId, 0, [])).toHaveLength(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('limits the search to the selected drives and persists the scope', async () => {
+    const { db, service, scanId } = seed();
+    try {
+      const pairSize = 90 * 1024;
+      const pair = Buffer.alloc(pairSize, 0x51);
+      insertFile(
+        db,
+        scanId,
+        createFile(tempRoot(), 'xpair\\x-pair-a.pdf', pair, Date.UTC(2020, 2, 1), 'X:'),
+      );
+      insertFile(
+        db,
+        scanId,
+        createFile(tempRoot(), 'xpair\\x-pair-b.pdf', pair, Date.UTC(2020, 2, 2), 'X:'),
+      );
+
+      service.start(['X:']);
+      await service.whenIdle();
+      let state = service.getState();
+      expect(state.status).toBe('completed');
+      expect(state.drives).toEqual(['X:']);
+      let page = service.query(baseQuery());
+      expect(page.total).toBe(1);
+      expect(page.items[0].size).toBe(pairSize);
+      expect(page.items[0].drives).toEqual(['X:']);
+
+      const restarted = new DuplicatesService({
+        db,
+        getDefaultMinSize: () => 0,
+        runnerFactory: () => createInlineHashRunner(),
+      });
+      expect(restarted.getState().drives).toEqual(['X:']);
+
+      service.start(['c:']);
+      await service.whenIdle();
+      state = service.getState();
+      expect(state.drives).toEqual(['C:']);
+      page = service.query(baseQuery());
+      expect(page.total).toBe(2);
+      expect(page.items.every((group) => group.drives.every((drive) => drive === 'C:'))).toBe(
+        true,
+      );
+      expect(page.items.some((group) => group.size === pairSize)).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects drives outside the scan and empty selections', () => {
+    const { db, service } = seed();
+    try {
+      expect(() => service.start([])).toThrow('请至少选择一块硬盘');
+      expect(() => service.start(['Z:'])).toThrow('本次扫描范围');
+      expect(service.getState().status).toBe('idle');
+      const runs = db.prepare('SELECT COUNT(*) AS count FROM duplicate_runs').get() as {
+        count: number;
+      };
+      expect(runs.count).toBe(0);
     } finally {
       db.close();
     }
