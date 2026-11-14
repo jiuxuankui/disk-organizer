@@ -83,7 +83,30 @@ describe('settings persistence', () => {
       autoBackup: false,
       organizeRules: [],
       organizePriority: 'order',
+      theme: 'classic',
     });
+  });
+
+  it('persists the selected theme and falls back to classic for unknown values', () => {
+    const { filePath } = tempSettings();
+    const service = new SettingsService(filePath);
+    service.load();
+    const updated = service.update({ theme: 'midnight' });
+    expect(updated.theme).toBe('midnight');
+    const second = new SettingsService(filePath);
+    expect(second.get().theme).toBe('midnight');
+
+    expect(
+      parseSettings({
+        scanDrives: ['D:'],
+        excludedPaths: [],
+        skipHiddenSystem: false,
+        autoBackup: true,
+        organizeRules: [],
+        organizePriority: 'order',
+        theme: 'not-a-theme',
+      }),
+    ).toMatchObject({ scanDrives: ['D:'], skipHiddenSystem: false, theme: 'classic' });
   });
 
   it('defaults organizePriority to order for legacy settings and persists changes', () => {

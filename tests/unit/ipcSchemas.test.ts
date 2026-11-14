@@ -144,10 +144,12 @@ describe('IPC validation schemas', () => {
     expect(settingsUpdateSchema.parse({ excludedPaths: ['D:\\Temp'] }).excludedPaths).toEqual([
       'D:\\Temp',
     ]);
+    expect(settingsUpdateSchema.parse({ theme: 'macos-dark' }).theme).toBe('macos-dark');
     expect(() => parseIpc(settingsUpdateSchema, {}, '保存设置')).toThrow(/没有需要保存的设置/);
     expect(() => settingsUpdateSchema.parse({ unknown: 1 })).toThrow();
     expect(() => settingsUpdateSchema.parse({ excludedPaths: [''] })).toThrow();
     expect(() => settingsUpdateSchema.parse({ scanDrives: ['C:\\Windows'] })).toThrow();
     expect(() => settingsUpdateSchema.parse({ organizePriority: 'newest' })).toThrow();
+    expect(() => settingsUpdateSchema.parse({ theme: 'unknown-theme' })).toThrow();
   });
 });

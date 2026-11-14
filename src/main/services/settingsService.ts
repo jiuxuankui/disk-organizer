@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { organizePrioritySchema, organizeRulesSchema } from '@shared/organize';
+import { DEFAULT_THEME, THEME_IDS } from '@shared/themes';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_EXCLUDED_PATHS } from '@shared/constants';
@@ -14,6 +15,7 @@ export const settingsSchema = z.object({
   autoBackup: z.boolean(),
   organizeRules: organizeRulesSchema.default([]),
   organizePriority: organizePrioritySchema,
+  theme: z.enum(THEME_IDS).catch(DEFAULT_THEME),
 });
 
 export type AppSettings = z.infer<typeof settingsSchema>;
@@ -25,6 +27,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoBackup: true,
   organizeRules: [],
   organizePriority: 'order',
+  theme: DEFAULT_THEME,
 };
 
 export function normalizeSettings(input: AppSettings): AppSettings {
@@ -53,6 +56,7 @@ export function normalizeSettings(input: AppSettings): AppSettings {
     autoBackup: input.autoBackup,
     organizeRules: input.organizeRules,
     organizePriority: input.organizePriority,
+    theme: input.theme,
   };
 }
 

@@ -26,8 +26,10 @@ import type {
 } from '@shared/types';
 import type { AppSettings } from '@shared/types';
 import { COPY } from '@shared/copy';
+import { DEFAULT_THEME, type ThemeId } from '@shared/themes';
 import { formatBytes, formatCount, formatDateTime } from '@shared/format';
 import PageHeader from '../components/PageHeader';
+import ThemePicker from '../components/ThemePicker';
 import { describeError, isScanActive, useAppStore } from '../store/useAppStore';
 
 interface SettingsDraft {
@@ -292,6 +294,14 @@ export default function SettingsPage(): React.JSX.Element {
 
   const backups = dataInfo?.backups ?? [];
   const longEntries = longTrash?.entries ?? [];
+  const currentTheme = settings?.theme ?? DEFAULT_THEME;
+
+  const handleThemeChange = async (theme: ThemeId): Promise<void> => {
+    if (theme === currentTheme) return;
+    const ok = await updateSettings({ theme });
+    if (ok) pushNotice('success', '界面风格已切换');
+  };
+
   return (
     <div className="settings-page">
       <PageHeader
@@ -313,6 +323,16 @@ export default function SettingsPage(): React.JSX.Element {
       />
 
       <Space direction="vertical" size={16} style={{ width: '100%', maxWidth: 940 }}>
+        <Card
+          title="界面风格"
+          extra={<Typography.Text type="secondary">选择后立即生效并保存</Typography.Text>}
+        >
+          <ThemePicker
+            value={currentTheme}
+            onChange={(theme) => void handleThemeChange(theme)}
+          />
+        </Card>
+
         <Card title="扫描范围">
           {draft ? (
             <Space direction="vertical" size={16} style={{ width: '100%' }}>

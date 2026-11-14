@@ -181,6 +181,7 @@ export interface AppSettings {
   excludedPaths: string[];
   skipHiddenSystem: boolean;
   autoBackup: boolean;
+  theme: import('./themes').ThemeId;
 }
 
 export type ScanEvent =

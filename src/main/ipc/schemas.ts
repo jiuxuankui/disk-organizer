@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { localOrganizePath, organizePrioritySchema, organizeRulesSchema } from '@shared/organize';
 import { FILE_TYPES } from '@shared/fileTypes';
+import { THEME_IDS } from '@shared/themes';
 import type { FileTypeKey } from '@shared/types';
 
 const FILE_TYPE_KEYS = FILE_TYPES.map((item) => item.key) as [FileTypeKey, ...FileTypeKey[]];
@@ -133,6 +134,7 @@ export const settingsUpdateSchema = z
     autoBackup: z.boolean().optional(),
     organizeRules: organizeRulesSchema.optional(),
     organizePriority: organizePrioritySchema.optional(),
+    theme: z.enum(THEME_IDS).optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, '没有需要保存的设置');
