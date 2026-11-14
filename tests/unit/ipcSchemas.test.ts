@@ -34,6 +34,17 @@ describe('IPC validation schemas', () => {
     ).toThrow(/参数无效/);
   });
 
+  it('rejects oversized collections before allocating per-element validation errors', () => {
+    const scan = scanStartSchema.safeParse({ drives: Array(10000).fill(null) });
+    expect(scan.success).toBe(false);
+    if (!scan.success) expect(scan.error.issues.map((issue) => issue.code)).toEqual(['too_big']);
+
+    const deletion = deleteFilesSchema.safeParse({ fileIds: Array(200001).fill(null) });
+    expect(deletion.success).toBe(false);
+    if (!deletion.success)
+      expect(deletion.error.issues.map((issue) => issue.code)).toEqual(['too_big']);
+  });
+
   it('validates file paths', () => {
     expect(pathSchema.parse({ path: 'C:\\a.txt' }).path).toBe('C:\\a.txt');
     expect(() => parseIpc(pathSchema, { path: '' }, '打开位置')).toThrow(/路径不能为空/);
@@ -90,9 +101,7 @@ describe('IPC validation schemas', () => {
     expect(() => fileQuerySchema.parse({ drive: 'C:\\Windows' })).toThrow();
     expect(() => fileQuerySchema.parse({ type: 'spreadsheet' })).toThrow();
     expect(() => fileQuerySchema.parse({ unexpected: true })).toThrow();
-    expect(() => parseIpc(fileQuerySchema, { page: -2 }, '文件查询')).toThrow(
-      /文件查询参数无效/,
-    );
+    expect(() => parseIpc(fileQuerySchema, { page: -2 }, '文件查询')).toThrow(/文件查询参数无效/);
   });
 
   it('applies safe defaults and bounds to duplicate queries', () => {
@@ -150,9 +159,7 @@ describe('IPC validation schemas', () => {
     expect(settingsUpdateSchema.parse({ excludedPaths: ['D:\\Temp'] }).excludedPaths).toEqual([
       'D:\\Temp',
     ]);
-    expect(() => parseIpc(settingsUpdateSchema, {}, '保存设置')).toThrow(
-      /没有需要保存的设置/,
-    );
+    expect(() => parseIpc(settingsUpdateSchema, {}, '保存设置')).toThrow(/没有需要保存的设置/);
     expect(() => settingsUpdateSchema.parse({ unknown: 1 })).toThrow();
     expect(() => settingsUpdateSchema.parse({ excludedPaths: [''] })).toThrow();
     expect(() => settingsUpdateSchema.parse({ minDuplicateSize: -1 })).toThrow();
