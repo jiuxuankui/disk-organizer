@@ -8,6 +8,8 @@ import PageHeader from '../components/PageHeader';
 import FilesToolbar from '../components/FilesToolbar';
 import FileTable from '../components/FileTable';
 import BulkActionBar from '../components/BulkActionBar';
+import ArchiveModal from '../components/ArchiveModal';
+import { VIDEO_EXTENSIONS } from '@shared/video';
 import {
   buildFileQuery,
   DEFAULT_FILE_SORT,
@@ -43,9 +45,7 @@ export default function FilesPage(): React.JSX.Element {
   const dataVersion = useAppStore((state) => state.dataVersion);
   const scanState = useAppStore((state) => state.scanState);
   const scanning = isScanActive(scanState);
-  const recycleUnavailable = useAppStore(
-    (state) => state.recycleStatus?.available === false,
-  );
+  const recycleUnavailable = useAppStore((state) => state.recycleStatus?.available === false);
 
   const scanId = overview?.scan?.id ?? null;
   const [filters, setFilters] = useState<FilesFilters>(() => filtersFromPrefill(prefill));
@@ -59,6 +59,8 @@ export default function FilesPage(): React.JSX.Element {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [selection, setSelection] = useState<FilesSelection>(clearSelection());
+  const [archiveIds, setArchiveIds] = useState<number[] | null>(null);
+  const [preparing, setPreparing] = useState(false);
   const requestRef = useRef(0);
   const loadingRef = useRef(false);
   const loadingMoreRef = useRef(false);
@@ -143,7 +145,10 @@ export default function FilesPage(): React.JSX.Element {
       setTotalBytes(result.totalBytes);
       setLoadedPage(result.page);
       setSelection((prev) =>
-        appendLoadedKeys(prev, additions.map((item) => item.id)),
+        appendLoadedKeys(
+          prev,
+          additions.map((item) => item.id),
+        ),
       );
     } catch (error) {
       if (sequence === requestRef.current) {
@@ -222,6 +227,43 @@ export default function FilesPage(): React.JSX.Element {
     }
   };
 
+  const handleCompress = async (mode: 'video' | 'archive'): Promise<void> => {
+    if (scanning || preparing) return;
+    setPreparing(true);
+    try {
+      const ids =
+        selection.mode === 'all'
+          ? await window.api.listFileIds({ ...baseQuery, page: 1, pageSize: 1000 })
+          : selection.keys;
+      const limit = mode === 'video' ? 200 : 10000;
+      if (ids.length === 0 || ids.length > limit) {
+        throw new Error(`请选择 1 至 ${limit} 个文件，必要时先收窄筛选条件`);
+      }
+      if (mode === 'archive') {
+        setArchiveIds(ids);
+      } else {
+        const files = await Promise.all(ids.map((id) => window.api.getFile(id)));
+        if (
+          files.some(
+            (file) => !file || !VIDEO_EXTENSIONS.some((ext) => ext === file.ext.toLowerCase()),
+          )
+        ) {
+          throw new Error('压缩视频仅支持视频文件，请先按视频类型筛选；其他文件可使用压缩打包');
+        }
+        const state = await window.api.getVideoState();
+        if (state.status === 'running' || state.status === 'cancelling') {
+          throw new Error('已有视频任务，请先在视频压缩页面完成或取消');
+        }
+        useAppStore.setState({ videoPaths: files.map((file) => file!.path) });
+        useAppStore.getState().setPage('video');
+      }
+    } catch (cause) {
+      pushNotice('error', describeError(cause));
+    } finally {
+      setPreparing(false);
+    }
+  };
+
   if (!overview?.scan) {
     return (
       <div className="files-page">
@@ -297,14 +339,18 @@ export default function FilesPage(): React.JSX.Element {
           allFiltered={selection.mode === 'all'}
           total={total}
           canSelectAll={showSelectAll}
-          onSelectAll={() =>
-            setSelection(selectAllFiltered(items.map((item) => item.id)))
-          }
+          onSelectAll={() => setSelection(selectAllFiltered(items.map((item) => item.id)))}
           onClear={() => setSelection(clearSelection())}
           onDelete={() => void handleDelete()}
+          onVideo={() => void handleCompress('video')}
+          onArchive={() => void handleCompress('archive')}
+          compressDisabled={scanning || preparing}
           deleteDisabled={scanning || recycleUnavailable}
           deleteHint={scanning ? '扫描完成后可删除文件' : COPY.recycleBinUnavailable}
         />
+      ) : null}
+      {archiveIds ? (
+        <ArchiveModal fileIds={archiveIds} onClose={() => setArchiveIds(null)} />
       ) : null}
     </div>
   );

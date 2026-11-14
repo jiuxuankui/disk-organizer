@@ -1,4 +1,8 @@
 export const IPC = {
+  archiveOutputDir: 'archive:output-dir',
+  archiveStart: 'archive:start',
+  archiveState: 'archive:state',
+  archiveCancel: 'archive:cancel',
   videoSelect: 'video:select',
   videoOutputDir: 'video:output-dir',
   videoState: 'video:state',

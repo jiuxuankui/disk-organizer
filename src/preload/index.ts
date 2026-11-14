@@ -4,6 +4,10 @@ import type { DiskOrganizerApi, StartScanInput } from '@shared/api';
 import type { AppSettings, DeleteEvent, DuplicateQuery, FileQuery, ScanEvent } from '@shared/types';
 
 const api: DiskOrganizerApi = {
+  selectArchiveOutputDir: () => ipcRenderer.invoke(IPC.archiveOutputDir),
+  startArchive: (input) => ipcRenderer.invoke(IPC.archiveStart, input),
+  getArchiveState: () => ipcRenderer.invoke(IPC.archiveState),
+  cancelArchive: () => ipcRenderer.invoke(IPC.archiveCancel),
   selectVideoFiles: () => ipcRenderer.invoke(IPC.videoSelect),
   selectVideoOutputDir: () => ipcRenderer.invoke(IPC.videoOutputDir),
   getVideoState: () => ipcRenderer.invoke(IPC.videoState),

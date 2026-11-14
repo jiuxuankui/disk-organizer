@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { VideoService } from './services/videoService';
+import { ArchiveService } from './services/archiveService';
 import type { DeleteEvent, ScanEvent } from '@shared/types';
 import { IPC } from '@shared/ipcChannels';
 import { createMainWindow } from './window';
@@ -105,6 +106,7 @@ if (!app.requestSingleInstanceLock()) {
   let duplicates: DuplicatesService | null = null;
   let deleteService: DeleteService | null = null;
   let video: VideoService | null = null;
+  let archive: ArchiveService | null = null;
   let quittingAfterScan = false;
   let closeConfirmed = false;
 
@@ -217,7 +219,11 @@ if (!app.requestSingleInstanceLock()) {
     });
     video = videoService;
 
+    const archiveService = new ArchiveService(() => drives.onlineLetters());
+    archive = archiveService;
+
     registerIpc({
+      archive: archiveService,
       video: videoService,
       paths,
       db,
@@ -236,16 +242,15 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow = createMainWindow();
 
     mainWindow.on('close', (event) => {
-      if (closeConfirmed || (!scanService.isScanning() && !videoService.isRunning())) return;
+      const compressing = videoService.isRunning() || archiveService.isRunning();
+      if (closeConfirmed || (!scanService.isScanning() && !compressing)) return;
       const window = mainWindow;
       if (!window) return;
       const choice = dialog.showMessageBoxSync(window, {
         type: 'warning',
-        title: videoService.isRunning() ? '视频压缩尚未完成' : '扫描尚未完成',
-        message: videoService.isRunning()
-          ? '关闭将停止当前视频压缩。'
-          : '扫描尚未完成，关闭将丢失本次进度。',
-        detail: videoService.isRunning()
+        title: compressing ? '压缩任务尚未完成' : '扫描尚未完成',
+        message: compressing ? '关闭将停止当前压缩任务。' : '扫描尚未完成，关闭将丢失本次进度。',
+        detail: compressing
           ? '原文件和已完成的输出保留，仅清理本次未完成的临时文件。'
           : '本次未完成的扫描结果不会保存，已有旧数据保持不变。',
         buttons: ['取消', '关闭'],
@@ -261,7 +266,12 @@ if (!app.requestSingleInstanceLock()) {
       closeConfirmed = true;
       scanService.cancel();
       videoService.cancel();
-      void Promise.all([scanService.whenIdle(), videoService.whenIdle()]).finally(() => {
+      archiveService.cancel();
+      void Promise.all([
+        scanService.whenIdle(),
+        videoService.whenIdle(),
+        archiveService.whenIdle(),
+      ]).finally(() => {
         mainWindow?.close();
       });
     });
@@ -289,7 +299,8 @@ if (!app.requestSingleInstanceLock()) {
       (scan?.isBusy() ||
         duplicates?.isRunning() ||
         deleteService?.isRunning() ||
-        video?.isRunning()) &&
+        video?.isRunning() ||
+        archive?.isRunning()) &&
       !quittingAfterScan
     ) {
       event.preventDefault();
@@ -298,11 +309,13 @@ if (!app.requestSingleInstanceLock()) {
       duplicates?.cancel();
       deleteService?.cancel();
       video?.cancel();
+      archive?.cancel();
       void Promise.all([
         scan?.whenIdle(),
         duplicates?.whenIdle(),
         deleteService?.whenIdle(),
         video?.whenIdle(),
+        archive?.whenIdle(),
       ])
         .catch(() => undefined)
         .finally(() => app.quit());

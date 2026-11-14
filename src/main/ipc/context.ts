@@ -12,7 +12,10 @@ import type { DataService } from '../services/dataService';
 import type { DevOverrides } from '../devOverrides';
 import type { VideoService } from '../services/videoService';
 
+import type { ArchiveService } from '../services/archiveService';
+
 export interface IpcContext {
+  archive: ArchiveService;
   video: VideoService;
   paths: AppPaths;
   db: DatabaseSync;

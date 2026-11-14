@@ -20,7 +20,8 @@ import PageHeader from '../components/PageHeader';
 import { describeError, useAppStore } from '../store/useAppStore';
 
 export default function VideoPage(): React.JSX.Element {
-  const [paths, setPaths] = useState<string[]>([]);
+  const paths = useAppStore((store) => store.videoPaths);
+  const setPaths = (values: string[]): void => useAppStore.setState({ videoPaths: values });
   const [outputDir, setOutputDir] = useState('');
   const [quality, setQuality] = useState<VideoQuality>('quality');
   const [state, setState] = useState<VideoState | null>(null);
@@ -57,7 +58,7 @@ export default function VideoPage(): React.JSX.Element {
   async function selectFiles(): Promise<void> {
     try {
       const selected = await window.api.selectVideoFiles();
-      setPaths((previous) => [...new Set([...previous, ...selected])]);
+      setPaths([...new Set([...paths, ...selected])]);
     } catch (cause) {
       setError(describeError(cause));
     }
@@ -126,7 +127,7 @@ export default function VideoPage(): React.JSX.Element {
                       key="remove"
                       type="text"
                       disabled={locked}
-                      onClick={() => setPaths((items) => items.filter((item) => item !== file))}
+                      onClick={() => setPaths(paths.filter((item) => item !== file))}
                     >
                       移出列表
                     </Button>,

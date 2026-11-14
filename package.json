@@ -74,9 +74,17 @@
       "artifactName": "DiskOrganizer-Setup-${version}.exe"
     }
   },
+  "overrides": {
+    "archiver": {
+      "readdir-glob": {
+        "minimatch": "11.0.1"
+      }
+    }
+  },
   "dependencies": {
     "@ant-design/icons": "5.6.1",
     "antd": "5.29.3",
+    "archiver": "8.0.0",
     "dayjs": "1.11.23",
     "koffi": "3.3.8",
     "react": "19.3.1",
@@ -87,6 +95,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@playwright/test": "1.65.0",
+    "@types/archiver": "8.0.0",
     "@types/node": "24.19.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

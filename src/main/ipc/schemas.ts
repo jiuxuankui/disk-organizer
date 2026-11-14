@@ -32,6 +32,30 @@ export const videoStartSchema = z
   })
   .strict();
 
+export const archiveStartSchema = z
+  .object({
+    fileIds: z.array(z.number().int().positive()).min(1).max(10000),
+    outputDir: videoPathSchema,
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(120)
+      .refine(
+        (value) =>
+          !/[<>:"/\\|?*]/.test(value) &&
+          ![...value].some((char) => char.charCodeAt(0) < 32) &&
+          !/[. ]$/.test(value),
+        '压缩包名称包含无效字符',
+      )
+      .refine(
+        (value) => !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(value),
+        '不能使用系统保留名称',
+      ),
+    format: z.enum(['zip', 'tar.gz']),
+  })
+  .strict();
+
 export const pathSchema = z.object({
   path: z.string().min(1, '路径不能为空').max(32767),
 });

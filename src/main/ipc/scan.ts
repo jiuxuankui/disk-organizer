@@ -10,6 +10,7 @@ export function registerScanIpc(ctx: IpcContext): void {
 
   ipcMain.handle(IPC.scanStart, (_event, raw: unknown): ScanProgress => {
     const input: ScanStartPayload = parseIpc(scanStartSchema, raw, '开始扫描');
+    if (ctx.archive.isRunning()) throw new Error('压缩打包进行中，请完成或取消后再扫描');
     if (ctx.video.isRunning()) throw new Error('视频压缩进行中，完成或取消后再扫描');
     if (ctx.duplicates.isRunning()) {
       throw new Error('重复文件查找正在进行，完成或取消后才能开始扫描');

@@ -14,6 +14,9 @@ export interface BulkActionBarProps {
   onSelectAll(): void;
   onClear(): void;
   onDelete(): void;
+  onVideo(): void;
+  onArchive(): void;
+  compressDisabled?: boolean;
 }
 
 export default function BulkActionBar({
@@ -27,6 +30,9 @@ export default function BulkActionBar({
   onSelectAll,
   onClear,
   onDelete,
+  onVideo,
+  onArchive,
+  compressDisabled = false,
 }: BulkActionBarProps): React.JSX.Element {
   return (
     <div className="bulk-bar" role="status">
@@ -44,14 +50,15 @@ export default function BulkActionBar({
           </Button>
         ) : null}
         <Button onClick={onClear}>取消选择</Button>
+        <Button disabled={compressDisabled} onClick={onVideo}>
+          压缩视频
+        </Button>
+        <Button disabled={compressDisabled} onClick={onArchive}>
+          压缩打包
+        </Button>
         <Tooltip title={deleteDisabled ? deleteHint : undefined}>
           <span>
-            <Button
-              danger
-              icon={<DeleteOutlined />}
-              disabled={deleteDisabled}
-              onClick={onDelete}
-            >
+            <Button danger icon={<DeleteOutlined />} disabled={deleteDisabled} onClick={onDelete}>
               {COPY.deleteAction}
             </Button>
           </span>

@@ -23,6 +23,7 @@ export function registerVideoIpc(ctx: IpcContext): void {
   ipcMain.handle(IPC.videoState, () => ctx.video.getState());
   ipcMain.handle(IPC.videoStart, (_event, raw: unknown) => {
     const input = parseIpc(videoStartSchema, raw, '视频压缩');
+    if (ctx.archive.isRunning()) throw new Error('压缩打包进行中，请完成或取消后再压缩视频');
     if (ctx.scan.isBusy() || ctx.duplicates.isRunning() || ctx.deleteService.isRunning()) {
       throw new Error('请等待扫描、重复查找或删除任务结束后再压缩视频');
     }

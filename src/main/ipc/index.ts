@@ -11,7 +11,10 @@ import { registerDataIpc } from './data';
 import type { IpcContext } from './context';
 import { registerVideoIpc } from './video';
 
+import { registerArchiveIpc } from './archive';
+
 export function registerIpc(ctx: IpcContext): void {
+  registerArchiveIpc(ctx);
   registerVideoIpc(ctx);
   registerAppIpc(ctx);
   registerSettingsIpc(ctx);

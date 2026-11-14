@@ -21,6 +21,7 @@ import type {
   ScanProgress,
 } from './types';
 import type { VideoRequest, VideoState } from './video';
+import type { ArchiveRequest, ArchiveState } from './archive';
 
 export interface StartScanInput {
   drives: string[];
@@ -34,6 +35,10 @@ export interface OpenPathResult {
 }
 
 export interface DiskOrganizerApi {
+  selectArchiveOutputDir(): Promise<string | null>;
+  startArchive(input: ArchiveRequest): Promise<ArchiveState>;
+  getArchiveState(): Promise<ArchiveState>;
+  cancelArchive(): Promise<ArchiveState>;
   selectVideoFiles(): Promise<string[]>;
   selectVideoOutputDir(): Promise<string | null>;
   getVideoState(): Promise<VideoState>;

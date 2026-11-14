@@ -85,6 +85,7 @@ interface AppState {
   scanModalOpen: boolean;
   detailFile: FileRecord | null;
   filesPrefill: FilesPrefill;
+  videoPaths: string[];
   notice: Notice | null;
   deletePhase: DeletePhase;
   deletePreview: DeletePreview | null;
@@ -149,6 +150,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   scanModalOpen: false,
   detailFile: null,
   filesPrefill: { drive: null, type: null, rootPath: null },
+  videoPaths: [],
   notice: null,
   deletePhase: 'idle',
   deletePreview: null,
