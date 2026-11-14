@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Dropdown,
   Empty,
   Input,
   List,
@@ -17,10 +18,16 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { FolderOpenOutlined, PlusOutlined } from '@ant-design/icons';
+import { AppstoreAddOutlined, FolderOpenOutlined, PlusOutlined } from '@ant-design/icons';
 import { FILE_TYPES } from '@shared/fileTypes';
 import { formatBytes } from '@shared/format';
-import type { OrganizePreview, OrganizeRule, OrganizeState } from '@shared/organize';
+import {
+  createPresetRule,
+  ORGANIZE_PRESETS,
+  type OrganizePreview,
+  type OrganizeRule,
+  type OrganizeState,
+} from '@shared/organize';
 import PageHeader from '../components/PageHeader';
 import { useBackClose } from '../lib/back';
 import { describeError, useAppStore } from '../store/useAppStore';
@@ -89,6 +96,12 @@ export default function OrganizePage(): React.JSX.Element {
   }
   function changeRule(id: string, patch: Partial<OrganizeRule>): void {
     setRules((current) => current.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)));
+    invalidate();
+  }
+  function addPreset(key: string): void {
+    const preset = ORGANIZE_PRESETS.find((item) => item.key === key);
+    if (!preset || rules.length >= 50) return;
+    setRules([...rules, createPresetRule(preset)]);
     invalidate();
   }
   async function chooseDirectory(ruleId?: string): Promise<void> {
@@ -195,6 +208,23 @@ export default function OrganizePage(): React.JSX.Element {
           title="2. 自定义归类规则"
           extra={
             <Space>
+              <Dropdown
+                disabled={locked || rules.length >= 50}
+                menu={{
+                  items: ORGANIZE_PRESETS.map((preset) => ({
+                    key: preset.key,
+                    label: preset.ruleName,
+                  })),
+                  onClick: ({ key }) => addPreset(key),
+                }}
+              >
+                <Button
+                  disabled={locked || rules.length >= 50}
+                  icon={<AppstoreAddOutlined aria-hidden />}
+                >
+                  添加预设
+                </Button>
+              </Dropdown>
               <Button
                 disabled={locked || rules.length >= 50}
                 icon={<PlusOutlined aria-hidden />}
@@ -223,11 +253,11 @@ export default function OrganizePage(): React.JSX.Element {
           }
         >
           <Typography.Paragraph type="secondary">
-            类型、扩展名和名称条件同时满足才匹配；扩展名和名称留空表示不限。同盘规则之间按从上到下的顺序匹配。所有规则指向同一个目标即可集中归档。
+            类型、扩展名和名称条件同时满足才匹配；扩展名和名称留空表示不限。同盘规则之间按从上到下的顺序匹配。所有规则指向同一个目标即可集中归档。“添加预设”可一键加入视频、图片、文档、音乐、压缩包、安装包规则，添加后只需选择目标文件夹。
           </Typography.Paragraph>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             {rules.length === 0 ? (
-              <Empty description="尚无归类规则" />
+              <Empty description="尚无归类规则，可用“添加预设”快速开始" />
             ) : (
               rules.map((rule, index) => (
                 <Card

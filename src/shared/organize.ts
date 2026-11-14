@@ -53,6 +53,82 @@ export const organizeStartSchema = z
 export type OrganizeRule = z.infer<typeof organizeRuleSchema>;
 export type OrganizePreviewRequest = z.infer<typeof organizePreviewSchema>;
 export type OrganizeStartRequest = z.infer<typeof organizeStartSchema>;
+
+export interface OrganizePreset {
+  key: string;
+  ruleName: string;
+  description: string;
+  type: FileTypeKey | 'all';
+  extensions: string[];
+  nameContains: string;
+}
+
+export const ORGANIZE_PRESETS: readonly OrganizePreset[] = [
+  {
+    key: 'video',
+    ruleName: '视频归档',
+    description: 'mp4、mkv、mov 等视频文件',
+    type: 'video',
+    extensions: [],
+    nameContains: '',
+  },
+  {
+    key: 'image',
+    ruleName: '图片归档',
+    description: 'jpg、png、heic 等图片文件',
+    type: 'image',
+    extensions: [],
+    nameContains: '',
+  },
+  {
+    key: 'document',
+    ruleName: '文档归档',
+    description: '文档、表格、演示文稿与 PDF',
+    type: 'document',
+    extensions: [],
+    nameContains: '',
+  },
+  {
+    key: 'audio',
+    ruleName: '音乐归档',
+    description: 'mp3、flac、wav 等音频文件',
+    type: 'audio',
+    extensions: [],
+    nameContains: '',
+  },
+  {
+    key: 'archive',
+    ruleName: '压缩包归档',
+    description: 'zip、rar、7z 等压缩文件',
+    type: 'archive',
+    extensions: [],
+    nameContains: '',
+  },
+  {
+    key: 'installer',
+    ruleName: '安装包归档',
+    description: 'exe、msi 等安装程序',
+    type: 'installer',
+    extensions: [],
+    nameContains: '',
+  },
+];
+
+export function createPresetRule(
+  preset: OrganizePreset,
+  id: string = crypto.randomUUID(),
+): OrganizeRule {
+  return {
+    id,
+    name: preset.ruleName,
+    enabled: true,
+    type: preset.type,
+    extensions: [...preset.extensions],
+    nameContains: preset.nameContains,
+    targetDir: '',
+  };
+}
+
 export interface OrganizeItem {
   id: number;
   source: string;

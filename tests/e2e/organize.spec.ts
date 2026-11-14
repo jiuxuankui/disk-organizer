@@ -160,3 +160,33 @@ test('停止跨盘任务保留原文件且移除本次临时副本', async () =>
   );
   expect(errors).toEqual([]);
 });
+
+test('预设规则支持一键添加、编辑目标文件夹并持久化', async () => {
+  const removeRule = page.getByRole('button', { name: '移除规则', exact: true });
+  while ((await removeRule.count()) > 0) await removeRule.first().click();
+  await expect(page.locator('.organize-rule')).toHaveCount(0);
+
+  await page.getByRole('button', { name: '添加预设', exact: true }).click();
+  await page.getByRole('menuitem', { name: '图片归档', exact: true }).click();
+  await expect(page.locator('.organize-rule')).toHaveCount(1);
+  await expect(page.getByRole('textbox', { name: '规则名称', exact: true })).toHaveValue(
+    '图片归档',
+  );
+  await expect(page.locator('.organize-rule .ant-select-selection-item')).toHaveText('图片');
+  await expect(page.getByRole('textbox', { name: '扩展名条件', exact: true })).toHaveValue('');
+  await expect(page.getByRole('textbox', { name: '文件名包含', exact: true })).toHaveValue('');
+
+  await choose('选择目标文件夹', output);
+  await page.getByRole('button', { name: '保存规则', exact: true }).click();
+  await expect(page.getByText('归类规则已保存，下次启动仍可使用', { exact: true })).toBeVisible();
+
+  await page.reload();
+  await page.waitForSelector('.organize-page');
+  await expect(page.locator('.organize-rule')).toHaveCount(1);
+  await expect(page.getByRole('textbox', { name: '规则名称', exact: true })).toHaveValue(
+    '图片归档',
+  );
+  await expect(page.getByRole('textbox', { name: '规则目标文件夹', exact: true })).toHaveValue(
+    output,
+  );
+});
