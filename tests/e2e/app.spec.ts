@@ -164,6 +164,54 @@ test('全部文件页支持筛选、搜索和详情抽屉', async () => {
     page.locator('.folder-table .folder-file-row').filter({ hasText: 'q1.txt' }),
   ).toHaveCount(1);
 
+  await app.evaluate(({ BrowserWindow }) => {
+    const main = BrowserWindow.getAllWindows()[0];
+    main.setMinimumSize(900, 520);
+    main.setSize(1100, 560);
+  });
+  await page.waitForTimeout(400);
+  await page.getByRole('button', { name: '展开 photos', exact: true }).click();
+  await page.getByRole('button', { name: '展开 sub', exact: true }).click();
+  await expect(page.locator('.folder-table .folder-file-row')).toHaveCount(6);
+
+  const folderBody = page.locator('.folder-table .ant-table-body');
+  const scrollable = await folderBody.evaluate((element) => ({
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+  }));
+  expect(scrollable.scrollHeight).toBeGreaterThan(scrollable.clientHeight);
+  await folderBody.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect.poll(() => folderBody.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+  await page.getByRole('checkbox', { name: '选择文件夹 sub' }).click();
+  const bulkBar = page.locator('.bulk-bar');
+  await expect(bulkBar).toContainText('1 个文件夹');
+  const tableBox = await page.locator('.folder-table-wrap').boundingBox();
+  const barBox = await bulkBar.boundingBox();
+  expect(tableBox).not.toBeNull();
+  expect(barBox).not.toBeNull();
+  expect(tableBox!.y + tableBox!.height).toBeLessThanOrEqual(barBox!.y + 1);
+  const barButtons = [
+    page.getByRole('button', { name: '取消选择', exact: true }),
+    page.locator('.bulk-bar button.ant-btn-dangerous'),
+  ];
+  for (const button of barButtons) {
+    const buttonBox = await button.boundingBox();
+    expect(buttonBox).not.toBeNull();
+    expect(buttonBox!.y).toBeGreaterThanOrEqual(barBox!.y);
+    expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(barBox!.y + barBox!.height);
+  }
+  await page.getByRole('button', { name: '取消选择', exact: true }).click();
+  await expect(bulkBar).toBeHidden();
+  await app.evaluate(({ BrowserWindow }) => {
+    const main = BrowserWindow.getAllWindows()[0];
+    main.setMinimumSize(1100, 700);
+    main.setSize(1280, 800);
+  });
+  await page.waitForTimeout(300);
+
   await folderRows.filter({ hasText: 'photos' }).locator('.folder-name-text').click();
   await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(3);
   await expect(page.locator('.ant-select-selection-item[title="全部类型"]')).toBeVisible();

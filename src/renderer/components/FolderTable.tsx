@@ -51,7 +51,20 @@ export default function FolderTable({
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [contents, setContents] = useState<Map<string, FolderContents>>(() => new Map());
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set());
+  const [bodyHeight, setBodyHeight] = useState(320);
   const requestRef = useRef(0);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const element = wrapRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver((entries) => {
+      const next = Math.floor(entries[0]?.contentRect.height ?? 0);
+      if (next > 0) setBodyHeight(Math.max(220, next - 4));
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     requestRef.current += 1;
@@ -282,34 +295,36 @@ export default function FolderTable({
   ];
 
   return (
-    <Table<FolderRow>
-      className="folder-table"
-      rowKey="key"
-      size="small"
-      tableLayout="fixed"
-      columns={columns}
-      dataSource={rows}
-      loading={loading}
-      pagination={false}
-      scroll={{ x: 720 }}
-      rowClassName={(row) =>
-        row.kind === 'folder'
-          ? 'folder-row'
-          : row.kind === 'file'
-            ? 'folder-file-row'
-            : 'folder-hint-row'
-      }
-      onRow={(row) => ({
-        onClick: () => {
-          if (row.kind === 'folder') onEnter(row.node);
-          else if (row.kind === 'file') onOpenFile(row.file);
-        },
-      })}
-      locale={{
-        emptyText: loading ? null : (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前条件下没有文件夹" />
-        ),
-      }}
-    />
+    <div className="files-table-wrap folder-table-wrap" ref={wrapRef}>
+      <Table<FolderRow>
+        className="folder-table"
+        rowKey="key"
+        size="small"
+        tableLayout="fixed"
+        columns={columns}
+        dataSource={rows}
+        loading={loading}
+        pagination={false}
+        scroll={{ x: 720, y: Math.max(220, bodyHeight - 42) }}
+        rowClassName={(row) =>
+          row.kind === 'folder'
+            ? 'folder-row'
+            : row.kind === 'file'
+              ? 'folder-file-row'
+              : 'folder-hint-row'
+        }
+        onRow={(row) => ({
+          onClick: () => {
+            if (row.kind === 'folder') onEnter(row.node);
+            else if (row.kind === 'file') onOpenFile(row.file);
+          },
+        })}
+        locale={{
+          emptyText: loading ? null : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前条件下没有文件夹" />
+          ),
+        }}
+      />
+    </div>
   );
 }
