@@ -205,4 +205,10 @@ export function listOtherScanIds(db: DatabaseSync, activeScanId: number): number
   ).map((row) => row.id);
 }
 
+export function listScanIds(db: DatabaseSync): number[] {
+  return (db.prepare('SELECT id FROM scans ORDER BY id DESC').all() as Array<{ id: number }>).map(
+    (row) => row.id,
+  );
+}
+
 export type { SkipReason };

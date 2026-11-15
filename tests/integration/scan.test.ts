@@ -133,7 +133,7 @@ describe('two-phase scan', () => {
     const staging = db
       .prepare('SELECT COUNT(*) AS c FROM scan_staging WHERE scan_id = ?')
       .get(scanId) as { c: number };
-    expect(staging.c).toBe(8);
+    expect(staging.c).toBe(0);
 
     const skipped = new Map(result.skipped.map((item) => [item.reason, item]));
     expect(skipped.get('excluded')?.count).toBe(3);
@@ -156,6 +156,32 @@ describe('two-phase scan', () => {
     const paths = files.map((file) => file.path.toLowerCase());
     expect(paths).not.toContain(fixture.hiddenFile.toLowerCase());
     expect(paths).not.toContain(fixture.systemFile.toLowerCase());
+  });
+
+  it('reads each file metadata once and drains staging while indexing', async () => {
+    const { db, scanId } = createContext();
+    let lstatCount = 0;
+    const fsOps: ScanFsOps = {
+      ...defaultScanFsOps,
+      lstat(filePath) {
+        lstatCount += 1;
+        return defaultScanFsOps.lstat(filePath);
+      },
+    };
+
+    const result = await runScanCore(
+      db,
+      optionsFor(scanId, { fsOps }),
+      { paused: false, cancelled: false },
+    );
+
+    expect(result.totalFiles).toBe(8);
+    expect(lstatCount).toBe(8);
+    expect(getFiles(db, scanId)).toHaveLength(8);
+    const staging = db
+      .prepare('SELECT COUNT(*) AS c FROM scan_staging WHERE scan_id = ?')
+      .get(scanId) as { c: number };
+    expect(staging.c).toBe(0);
   });
 
   it('never writes to the scanned files', async () => {
@@ -204,7 +230,7 @@ describe('two-phase scan', () => {
     expect(result.totalFiles).toBe(8);
   });
 
-  it('stops mid indexing when cancelled and leaves only partial rows', async () => {
+  it('stops during enumeration when cancelled and leaves staging for cleanup', async () => {
     const { db, scanId } = createContext();
     const control: ScanControl = { paused: false, cancelled: false };
     let lstatCount = 0;
@@ -226,9 +252,9 @@ describe('two-phase scan', () => {
     const staging = db
       .prepare('SELECT COUNT(*) AS c FROM scan_staging WHERE scan_id = ?')
       .get(scanId) as { c: number };
-    expect(staging.c).toBe(8);
-    expect(files.length).toBeGreaterThan(0);
-    expect(files.length).toBeLessThan(8);
+    expect(staging.c).toBeGreaterThan(0);
+    expect(staging.c).toBeLessThan(8);
+    expect(files).toHaveLength(0);
   });
 
   it('records permission failures and keeps scanning the rest', async () => {

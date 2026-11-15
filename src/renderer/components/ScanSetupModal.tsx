@@ -34,6 +34,7 @@ function ScanSetupForm(): React.JSX.Element {
   const selected = selectedOverride ?? defaultSelected();
   const skipHiddenSystem = skipHiddenOverride ?? settings?.skipHiddenSystem ?? true;
   const scanning = isScanActive(scanState);
+  const cleaning = scanState?.cleaning === true;
 
   const toggle = (drive: DriveInfo, checked: boolean): void => {
     const current = selectedOverride ?? defaultSelected();
@@ -128,6 +129,13 @@ function ScanSetupForm(): React.JSX.Element {
           message="当前有扫描正在进行，完成或取消后才能开始新的扫描"
         />
       ) : null}
+      {cleaning ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="正在后台清理上一次扫描的旧数据，完成后才能开始新的扫描"
+        />
+      ) : null}
 
       <div className="modal-footer-actions">
         <Button onClick={close} disabled={starting}>
@@ -136,7 +144,7 @@ function ScanSetupForm(): React.JSX.Element {
         <Button
           type="primary"
           loading={starting}
-          disabled={selected.length === 0 || online.length === 0 || scanning}
+          disabled={selected.length === 0 || online.length === 0 || scanning || cleaning}
           onClick={() => void handleStart()}
         >
           {COPY.setupStartAction}

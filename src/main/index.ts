@@ -25,6 +25,7 @@ import { DataService } from './services/dataService';
 import { readRecycleBinPolicy } from './services/recycleBinService';
 import { createFakeRecyclePolicy, createFakeTrashItem, readDevOverrides } from './devOverrides';
 import { createScanWorker } from './services/scanWorkerFactory';
+import { createCleanupWorker } from './services/cleanupWorkerFactory';
 import { createHashRunner } from './services/hashWorkerFactory';
 
 function formatBackupTime(timestamp: number): string {
@@ -179,6 +180,7 @@ if (!app.requestSingleInstanceLock()) {
       db,
       dbPath: paths.dbPath,
       workerFactory: createScanWorker,
+      cleanupWorkerFactory: createCleanupWorker,
       emit: broadcastScanEvent,
     });
     scanService.recover();
@@ -240,7 +242,7 @@ if (!app.requestSingleInstanceLock()) {
       db,
       drives,
       isBusy: () =>
-        scanService.isScanning() ||
+        scanService.isBusy() ||
         deleteSvc.isRunning() ||
         organizeService.isRunning() ||
         duplicatesService.isRunning(),

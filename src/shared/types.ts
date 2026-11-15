@@ -63,6 +63,7 @@ export interface ScanProgress {
   startedAt: number | null;
   finishedAt: number | null;
   error: string | null;
+  cleaning: boolean;
 }
 
 export interface ScanSummary {

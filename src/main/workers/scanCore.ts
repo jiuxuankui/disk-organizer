@@ -148,17 +148,40 @@ export async function runScanCore(
   }
 
   const insertStaging = db.prepare(
-    'INSERT OR IGNORE INTO scan_staging (scan_id, drive, path, path_key) VALUES (?, ?, ?, ?)',
+    `INSERT OR IGNORE INTO scan_staging
+      (scan_id, drive, path, path_key, size, mtime_ms, ctime_ms, volume_id, file_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
-  let stagingBuffer: Array<{ drive: string; path: string; pathKey: string }> = [];
+  interface StagingRow {
+    drive: string;
+    path: string;
+    pathKey: string;
+    size: number;
+    mtimeMs: number;
+    ctimeMs: number;
+    volumeId: string;
+    fileId: string;
+  }
+
+  let stagingBuffer: StagingRow[] = [];
 
   function flushStaging(): void {
     if (stagingBuffer.length === 0) return;
     db.exec('BEGIN IMMEDIATE');
     try {
       for (const item of stagingBuffer) {
-        insertStaging.run(options.scanId, item.drive, item.path, item.pathKey);
+        insertStaging.run(
+          options.scanId,
+          item.drive,
+          item.path,
+          item.pathKey,
+          item.size,
+          item.mtimeMs,
+          item.ctimeMs,
+          item.volumeId,
+          item.fileId,
+        );
       }
       db.exec('COMMIT');
     } catch (error) {
@@ -247,10 +270,26 @@ export async function runScanCore(
         continue;
       }
 
+      const stats = fsOps.lstat(fullPath);
+      if (!stats) {
+        skipped.add('error', fullPath);
+        continue;
+      }
+      if (!stats.isFile()) {
+        skipped.add('special', fullPath);
+        continue;
+      }
+      const identity = getFileIdentityFromStats(stats);
+
       stagingBuffer.push({
         drive: getDriveLetter(fullPath),
         path: fullPath,
         pathKey: normalizePathKey(fullPath),
+        size: Number(stats.size),
+        mtimeMs: Number(stats.mtimeMs),
+        ctimeMs: Number(stats.ctimeMs),
+        volumeId: identity?.volumeId ?? '',
+        fileId: identity?.fileId ?? '',
       });
       if (stagingBuffer.length >= batchSize) flushStaging();
     }
@@ -264,12 +303,15 @@ export async function runScanCore(
   emitProgress(true);
 
   const selectStaging = db.prepare(
-    'SELECT path, path_key FROM scan_staging WHERE scan_id = ? AND path_key > ? ORDER BY path_key LIMIT ?',
+    'SELECT path, path_key, size, mtime_ms, ctime_ms, volume_id, file_id FROM scan_staging WHERE scan_id = ? AND path_key > ? ORDER BY path_key LIMIT ?',
   );
   const insertFile = db.prepare(
-    `INSERT OR IGNORE INTO files
+    `INSERT INTO files
       (scan_id, drive, path, path_key, name, name_key, ext, type, size, mtime_ms, ctime_ms, root_dir, dir_path, dir_key, volume_id, file_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const deleteStaging = db.prepare(
+    'DELETE FROM scan_staging WHERE scan_id = ? AND path_key <= ?',
   );
 
   let lastKey = '';
@@ -278,6 +320,11 @@ export async function runScanCore(
     const rows = selectStaging.all(options.scanId, lastKey, batchSize) as Array<{
       path: string;
       path_key: string;
+      size: number;
+      mtime_ms: number;
+      ctime_ms: number;
+      volume_id: string;
+      file_id: string;
     }>;
     if (rows.length === 0) break;
 
@@ -286,42 +333,9 @@ export async function runScanCore(
       for (const row of rows) {
         lastKey = row.path_key;
         currentPath = row.path;
-        const stats = fsOps.lstat(row.path);
-        if (!stats) {
-          skipped.add('error', row.path);
-          continue;
-        }
-        if (!stats.isFile()) {
-          skipped.add('special', row.path);
-          continue;
-        }
-        const attributes = fsOps.attributes(row.path);
-        if (!attributes) {
-          skipped.add('permission', row.path);
-          continue;
-        }
-        if (attributes.reparsePoint) {
-          skipped.add('special', row.path);
-          continue;
-        }
-        if (options.skipHiddenSystem && attributes.system) {
-          skipped.add('system', row.path);
-          continue;
-        }
-        if (options.skipHiddenSystem && attributes.hidden) {
-          skipped.add('hidden', row.path);
-          continue;
-        }
-        if (attributes.directory) {
-          skipped.add('special', row.path);
-          continue;
-        }
-
         const name = path.win32.basename(row.path);
         const drive = getDriveLetter(row.path);
         const dirPath = path.win32.dirname(row.path);
-        const identity = getFileIdentityFromStats(stats);
-        const size = Number(stats.size);
         const scanRoot = scanRoots.find((root) => isSameOrSubPath(row.path, root)) ?? `${drive}\\`;
         const rootDir = getRootDir(
           row.path,
@@ -336,18 +350,19 @@ export async function runScanCore(
           name.toLowerCase(),
           getExtension(name),
           classifyFileName(name),
-          size,
-          Number(stats.mtimeMs),
-          Number(stats.ctimeMs),
+          row.size,
+          row.mtime_ms,
+          row.ctime_ms,
           rootDir,
           dirPath,
           normalizePathKey(dirPath),
-          identity?.volumeId ?? '',
-          identity?.fileId ?? '',
+          row.volume_id,
+          row.file_id,
         );
         filesProcessed += 1;
-        bytesProcessed += size;
+        bytesProcessed += row.size;
       }
+      deleteStaging.run(options.scanId, lastKey);
       db.exec('COMMIT');
     } catch (error) {
       try {

@@ -5,21 +5,21 @@ import { SCAN_BATCH_SIZE } from '@shared/constants';
 import {
   createScan,
   deleteMeta,
-  deleteScanData,
   finalizeScan,
   getActiveScanId,
   getActiveScanSummary,
   getMeta,
   getScanRow,
   getScanSummary,
-  listOtherScanIds,
   listRunningScanIds,
+  listScanIds,
   markOtherDuplicateRunsStale,
-  pruneHashCache,
   setActiveScanId,
   setMeta,
   updateScanStatus,
 } from '../db/scansRepo';
+import { cleanupScanSnapshots } from './cleanupService';
+import type { CleanupWorkerData, CleanupWorkerOutbound } from '../workers/cleanupProtocols';
 import type { ScanWorkerData, ScanWorkerOutbound } from '../workers/protocols';
 
 export interface WorkerLike {
@@ -31,6 +31,7 @@ export interface WorkerLike {
 }
 
 export type ScanWorkerFactory = (data: ScanWorkerData) => WorkerLike;
+export type CleanupWorkerFactory = (data: CleanupWorkerData) => WorkerLike;
 
 export interface ScanStartOptions {
   drives: string[];
@@ -50,6 +51,7 @@ export interface ScanServiceDeps {
   db: DatabaseSync;
   dbPath: string;
   workerFactory: ScanWorkerFactory;
+  cleanupWorkerFactory?: CleanupWorkerFactory;
   emit?: (event: ScanServiceEvent) => void;
   now?: () => number;
   cancelTimeoutMs?: number;
@@ -76,6 +78,7 @@ function idleState(): ScanProgress {
     startedAt: null,
     finishedAt: null,
     error: null,
+    cleaning: false,
   };
 }
 
@@ -83,6 +86,7 @@ export class ScanService {
   private readonly db: DatabaseSync;
   private readonly dbPath: string;
   private readonly workerFactory: ScanWorkerFactory;
+  private readonly cleanupWorkerFactory: CleanupWorkerFactory | null;
   private readonly emit: (event: ScanServiceEvent) => void;
   private readonly now: () => number;
   private readonly cancelTimeoutMs: number;
@@ -91,11 +95,14 @@ export class ScanService {
   private run: ActiveRun | null = null;
   private idleResolve: (() => void) | null = null;
   private idlePromise: Promise<void> = Promise.resolve();
+  private cleanupWorker: WorkerLike | null = null;
+  private cleanupPromise: Promise<void> | null = null;
 
   constructor(deps: ScanServiceDeps) {
     this.db = deps.db;
     this.dbPath = deps.dbPath;
     this.workerFactory = deps.workerFactory;
+    this.cleanupWorkerFactory = deps.cleanupWorkerFactory ?? null;
     this.emit = deps.emit ?? (() => {});
     this.now = deps.now ?? Date.now;
     this.cancelTimeoutMs = deps.cancelTimeoutMs ?? 15000;
@@ -127,15 +134,22 @@ export class ScanService {
   }
 
   isBusy(): boolean {
-    return this.run !== null;
+    return this.run !== null || this.cleanupPromise !== null;
   }
 
   whenIdle(): Promise<void> {
     return this.idlePromise;
   }
 
+  whenCleanupIdle(): Promise<void> {
+    return this.cleanupPromise ?? Promise.resolve();
+  }
+
   start(options: ScanStartOptions): ScanProgress {
     if (this.isScanning()) throw new Error('已有扫描正在进行');
+    if (this.cleanupPromise !== null) {
+      throw new Error('正在清理上一次扫描的旧数据，请稍候再开始扫描');
+    }
     const drives: string[] = [];
     for (const raw of options.drives) {
       const trimmed = raw.trim();
@@ -164,6 +178,7 @@ export class ScanService {
       startedAt: this.now(),
       finishedAt: null,
       error: null,
+      cleaning: false,
     };
     this.emit({ type: 'state', state: this.getState() });
 
@@ -341,11 +356,8 @@ export class ScanService {
     this.emit({ type: 'state', state: this.getState() });
     if (summary) this.emit({ type: 'completed', scan: summary });
 
-    void this.cleanupAfterCommit(scanId)
-      .catch(() => {
-        // Old snapshot cleanup is best effort; the new snapshot is already active.
-      })
-      .finally(() => this.finishIdle());
+    void this.scheduleCleanup(scanId);
+    this.finishIdle();
   }
 
   private finalizeCancel(scanId: number): void {
@@ -356,9 +368,8 @@ export class ScanService {
     const finishedAt = this.now();
     try {
       updateScanStatus(this.db, scanId, 'cancelled', finishedAt);
-      deleteScanData(this.db, scanId);
     } catch {
-      // Keep the app usable even if cleanup fails; active snapshot is untouched.
+      // Keep the app usable even if finalization fails; active snapshot is untouched.
     }
     this.state = {
       ...this.state,
@@ -369,6 +380,7 @@ export class ScanService {
     };
     this.emit({ type: 'state', state: this.getState() });
     this.emit({ type: 'cancelled', scanId });
+    void this.scheduleCleanup(getActiveScanId(this.db));
     this.finishIdle();
   }
 
@@ -386,7 +398,6 @@ export class ScanService {
       const finishedAt = this.now();
       try {
         updateScanStatus(this.db, scanId, 'cancelled', finishedAt);
-        deleteScanData(this.db, scanId);
       } catch {
         // Cleanup is best effort.
       }
@@ -400,6 +411,7 @@ export class ScanService {
       this.emit({ type: 'state', state: this.getState() });
       this.emit({ type: 'cancelled', scanId });
     }
+    void this.scheduleCleanup(getActiveScanId(this.db));
     this.finishIdle();
   }
 
@@ -419,7 +431,6 @@ export class ScanService {
       .finally(() => {
         try {
           updateScanStatus(this.db, scanId, 'failed', this.now());
-          deleteScanData(this.db, scanId);
         } catch {
           // The active snapshot remains untouched even if cleanup fails.
         }
@@ -432,6 +443,7 @@ export class ScanService {
         };
         this.emit({ type: 'state', state: this.getState() });
         this.emit({ type: 'failed', message });
+        void this.scheduleCleanup(getActiveScanId(this.db));
         this.finishIdle();
       });
   }
@@ -439,7 +451,6 @@ export class ScanService {
   private markFailedAfterCommit(scanId: number, message: string): void {
     try {
       updateScanStatus(this.db, scanId, 'failed', this.now());
-      deleteScanData(this.db, scanId);
     } catch {
       // The previous active snapshot is still intact.
     }
@@ -452,15 +463,81 @@ export class ScanService {
     };
     this.emit({ type: 'state', state: this.getState() });
     this.emit({ type: 'failed', message });
+    void this.scheduleCleanup(getActiveScanId(this.db));
     this.finishIdle();
   }
 
-  private async cleanupAfterCommit(activeScanId: number): Promise<void> {
-    const others = listOtherScanIds(this.db, activeScanId);
-    for (const scanId of others) {
-      deleteScanData(this.db, scanId);
+  private runCleanup(activeScanId: number | null): Promise<void> {
+    const factory = this.cleanupWorkerFactory;
+    if (!factory) {
+      return cleanupScanSnapshots(this.db, activeScanId).then(() => undefined);
     }
-    pruneHashCache(this.db, activeScanId);
+    return new Promise<void>((resolve) => {
+      let worker: WorkerLike | null = null;
+      let settled = false;
+      const finish = (): void => {
+        if (settled) return;
+        settled = true;
+        if (worker && this.cleanupWorker === worker) this.cleanupWorker = null;
+        if (worker) {
+          try {
+            void Promise.resolve(worker.terminate()).catch(() => undefined);
+          } catch {
+            // Worker may already be gone.
+          }
+        }
+        resolve();
+      };
+      try {
+        worker = factory({ dbPath: this.dbPath, activeScanId });
+      } catch (error) {
+        console.error(
+          `启动旧索引清理线程失败：${error instanceof Error ? error.message : String(error)}`,
+        );
+        resolve();
+        return;
+      }
+      this.cleanupWorker = worker;
+      worker.on('message', (message) => {
+        const result = message as CleanupWorkerOutbound;
+        if (result.type === 'error') {
+          console.error(`清理旧索引失败：${result.message}`);
+        }
+        finish();
+      });
+      worker.on('error', (error) => {
+        console.error(`清理旧索引失败：${error instanceof Error ? error.message : String(error)}`);
+        finish();
+      });
+      worker.on('exit', () => finish());
+    });
+  }
+
+  private scheduleCleanup(activeScanId: number | null): Promise<void> {
+    this.state = { ...this.state, cleaning: true };
+    this.emit({ type: 'state', state: this.getState() });
+    const promise = this.runCleanup(activeScanId)
+      .catch((error) => {
+        console.error(`清理旧索引失败：${error instanceof Error ? error.message : String(error)}`);
+      })
+      .finally(() => {
+        this.cleanupPromise = null;
+        this.state = { ...this.state, cleaning: false };
+        this.emit({ type: 'state', state: this.getState() });
+      });
+    this.cleanupPromise = promise;
+    return promise;
+  }
+
+  stopCleanup(): void {
+    const worker = this.cleanupWorker;
+    this.cleanupWorker = null;
+    if (!worker) return;
+    try {
+      void Promise.resolve(worker.terminate()).catch(() => undefined);
+    } catch {
+      // Worker may already be gone.
+    }
   }
 
   recover(): { recoveredRunning: number[]; activeScanId: number | null } {
@@ -469,7 +546,6 @@ export class ScanService {
     for (const scanId of runningIds) {
       try {
         updateScanStatus(this.db, scanId, 'failed', now);
-        deleteScanData(this.db, scanId);
       } catch {
         // Continue recovering the remaining scans.
       }
@@ -490,21 +566,12 @@ export class ScanService {
       } catch {
         // Stale markers are cosmetic; snapshot cleanup still matters more.
       }
-      for (const scanId of listOtherScanIds(this.db, activeScanId)) {
-        try {
-          deleteScanData(this.db, scanId);
-        } catch {
-          // Recovery continues with the next snapshot.
-        }
-      }
-      try {
-        pruneHashCache(this.db, activeScanId);
-      } catch {
-        // Cache pruning can be retried on the next start.
-      }
     }
 
     this.state = this.readInitialState();
+    if (listScanIds(this.db).length > 0) {
+      void this.scheduleCleanup(activeScanId);
+    }
     return { recoveredRunning: runningIds, activeScanId };
   }
 

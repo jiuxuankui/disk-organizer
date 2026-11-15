@@ -11,6 +11,7 @@ import {
 } from '../../src/main/db/scansRepo';
 import {
   ScanService,
+  type CleanupWorkerFactory,
   type ScanServiceEvent,
   type ScanWorkerFactory,
   type WorkerLike,
@@ -78,6 +79,7 @@ interface Harness {
 function createHarness(
   onPost?: (message: ScanWorkerInbound, worker: FakeWorker) => void,
   cancelTimeoutMs = 15000,
+  cleanupWorkers?: FakeWorker[],
 ): Harness {
   const temp = createTempDbPath('disk-organizer-service-');
   const db = openDatabase(temp.dbPath);
@@ -92,10 +94,18 @@ function createHarness(
     workers.push(worker);
     return worker;
   };
+  const cleanupFactory: CleanupWorkerFactory | undefined = cleanupWorkers
+    ? () => {
+        const worker = new FakeWorker();
+        cleanupWorkers.push(worker);
+        return worker;
+      }
+    : undefined;
   const service = new ScanService({
     db,
     dbPath: temp.dbPath,
     workerFactory: factory,
+    cleanupWorkerFactory: cleanupFactory,
     emit: (event) => events.push(event),
     now: () => 1700000000000,
     cancelTimeoutMs,
@@ -177,6 +187,7 @@ describe('ScanService lifecycle', () => {
 
     completeScan(workers[0], { totalFiles: 3, identifiedBytes: 512 });
     await service.whenIdle();
+    await service.whenCleanupIdle();
 
     const state = service.getState();
     expect(state.status).toBe('completed');
@@ -210,6 +221,7 @@ describe('ScanService lifecycle', () => {
     service.start({ drives: ['C:'], excludedPaths: [], skipHiddenSystem: true });
     completeScan(workers[0], { totalFiles: 2, identifiedBytes: 100 });
     await service.whenIdle();
+    await service.whenCleanupIdle();
     const oldScanId = service.getState().scanId!;
     insertFileRow(db, oldScanId, 'C:\\old.bin', 50);
 
@@ -228,6 +240,7 @@ describe('ScanService lifecycle', () => {
     service.cancel();
     expect(workers[1].posted).toContainEqual({ type: 'cancel' });
     await service.whenIdle();
+    await service.whenCleanupIdle();
 
     expect(service.getState().status).toBe('cancelled');
     expect(getActiveScanId(db)).toBe(oldScanId);
@@ -248,6 +261,7 @@ describe('ScanService lifecycle', () => {
     service.start({ drives: ['C:'], excludedPaths: [], skipHiddenSystem: true });
     completeScan(workers[0], { totalFiles: 1, identifiedBytes: 10 });
     await service.whenIdle();
+    await service.whenCleanupIdle();
     const oldScanId = getActiveScanId(db);
 
     const second = service.start({
@@ -257,6 +271,7 @@ describe('ScanService lifecycle', () => {
     });
     workers[1].emitError(new Error('磁盘读取失败'));
     await service.whenIdle();
+    await service.whenCleanupIdle();
 
     expect(service.getState().status).toBe('failed');
     expect(service.getState().error).toContain('磁盘读取失败');
@@ -279,6 +294,7 @@ describe('ScanService lifecycle', () => {
     expect(service.getState().status).toBe('enumerating');
     completeScan(workers[0], { totalFiles: 1, identifiedBytes: 1 });
     await service.whenIdle();
+    await service.whenCleanupIdle();
     expect(service.getState().status).toBe('completed');
   });
 
@@ -291,16 +307,18 @@ describe('ScanService lifecycle', () => {
     });
     service.cancel();
     await service.whenIdle();
+    await service.whenCleanupIdle();
     expect(workers[0].terminated).toBe(true);
     expect(service.getState().status).toBe('cancelled');
     expect(getScanRow(db, started.scanId!)?.status).toBe('cancelled');
   });
 
-  it('cleans old snapshots when a new scan starts', async () => {
+  it('cleans old snapshots after a scan commits', async () => {
     const { db, service, workers } = createHarness();
     service.start({ drives: ['C:'], excludedPaths: [], skipHiddenSystem: true });
     completeScan(workers[0], { totalFiles: 2, identifiedBytes: 100 });
     await service.whenIdle();
+    await service.whenCleanupIdle();
     const firstScanId = service.getState().scanId!;
     insertFileRow(db, firstScanId, 'C:\\old.bin', 50);
 
@@ -309,6 +327,7 @@ describe('ScanService lifecycle', () => {
     insertFileRow(db, secondScanId, 'C:\\new.bin', 60);
     completeScan(workers[1], { totalFiles: 1, identifiedBytes: 60 });
     await service.whenIdle();
+    await service.whenCleanupIdle();
 
     expect(getActiveScanId(db)).toBe(secondScanId);
     const oldFiles = db
@@ -321,7 +340,43 @@ describe('ScanService lifecycle', () => {
     expect(newFiles.c).toBe(1);
   });
 
-  it('recovers interrupted scans on startup and preserves the active snapshot', () => {
+  it('runs cleanup in a background worker and blocks new scans until it finishes', async () => {
+    const cleanupWorkers: FakeWorker[] = [];
+    const { service, workers } = createHarness(
+      (message, worker) => {
+        if (message.type === 'cancel') worker.emitMessage({ type: 'cancelled' });
+      },
+      15000,
+      cleanupWorkers,
+    );
+
+    service.start({ drives: ['C:'], excludedPaths: [], skipHiddenSystem: true });
+    completeScan(workers[0], { totalFiles: 1, identifiedBytes: 10 });
+
+    expect(cleanupWorkers).toHaveLength(1);
+    expect(service.getState().status).toBe('completed');
+    expect(service.getState().cleaning).toBe(true);
+    expect(service.isScanning()).toBe(false);
+    expect(service.isBusy()).toBe(true);
+    expect(() =>
+      service.start({ drives: ['C:'], excludedPaths: [], skipHiddenSystem: true }),
+    ).toThrow(/正在清理/);
+
+    cleanupWorkers[0].emitMessage({ type: 'done', files: 0, staging: 0, hashCache: 0 });
+    await service.whenCleanupIdle();
+
+    expect(service.getState().cleaning).toBe(false);
+    expect(service.isBusy()).toBe(false);
+
+    service.start({ drives: ['C:'], excludedPaths: [], skipHiddenSystem: true });
+    service.cancel();
+    expect(cleanupWorkers).toHaveLength(2);
+    cleanupWorkers[1].emitMessage({ type: 'done', files: 0, staging: 0, hashCache: 0 });
+    await service.whenCleanupIdle();
+    expect(service.getState().cleaning).toBe(false);
+  });
+
+  it('recovers interrupted scans on startup and preserves the active snapshot', async () => {
     const { db, service } = createHarness();
     const goodScan = createScan(db, ['C:'], 1);
     db.prepare(
@@ -342,6 +397,7 @@ describe('ScanService lifecycle', () => {
     expect(result.activeScanId).toBe(goodScan);
     expect(getScanRow(db, interrupted)?.status).toBe('failed');
     expect(getScanRow(db, orphan)?.status).toBe('completed');
+    await service.whenCleanupIdle();
     const remaining = db.prepare('SELECT scan_id FROM files ORDER BY scan_id').all() as Array<{
       scan_id: number;
     }>;
@@ -349,13 +405,14 @@ describe('ScanService lifecycle', () => {
     expect(getActiveScanId(db)).toBe(goodScan);
   });
 
-  it('clears an active pointer that refers to an unfinished scan', () => {
+  it('clears an active pointer that refers to an unfinished scan', async () => {
     const { db, service } = createHarness();
     const running = createScan(db, ['C:'], 10);
     setActiveScanId(db, running);
     insertFileRow(db, running, 'C:\\partial.bin', 5);
     const result = service.recover();
     expect(result.activeScanId).toBeNull();
+    await service.whenCleanupIdle();
     expect(getActiveScanId(db)).toBeNull();
     expect(getScanRow(db, running)?.status).toBe('failed');
     expect(service.getState().status).toBe('idle');
@@ -373,5 +430,6 @@ describe('ScanService lifecycle', () => {
     service.cancel();
     workers[0].emitMessage({ type: 'cancelled' });
     await service.whenIdle();
+    await service.whenCleanupIdle();
   });
 });

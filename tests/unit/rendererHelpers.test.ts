@@ -42,6 +42,7 @@ function progress(patch: Partial<ScanProgress>): ScanProgress {
     startedAt: 0,
     finishedAt: null,
     error: null,
+    cleaning: false,
     ...patch,
   };
 }

@@ -38,13 +38,17 @@ function SidebarFooter(): React.JSX.Element {
   const scanState = useAppStore((state) => state.scanState);
   const openScanModal = useAppStore((state) => state.openScanModal);
   const active = isScanActive(scanState);
+  const cleaning = scanState?.cleaning === true;
   const scan = overview?.scan ?? null;
 
   let statusLine = '尚未扫描';
   let timeLine = '点击下方按钮开始';
   let driveLine = '';
 
-  if (active && scanState) {
+  if (cleaning) {
+    statusLine = '正在清理旧索引';
+    timeLine = '清理完成后即可再次扫描';
+  } else if (active && scanState) {
     statusLine = scanState.status === 'paused' ? COPY.scanPaused : COPY.scanInProgress;
     timeLine = `已发现 ${formatCount(scanState.filesFound)} 个文件`;
     driveLine = scanState.drives.join('、');
@@ -77,10 +81,16 @@ function SidebarFooter(): React.JSX.Element {
         type="primary"
         block
         icon={<ScanOutlined />}
-        disabled={active}
+        disabled={active || cleaning}
         onClick={openScanModal}
       >
-        {active ? COPY.scanInProgress : scan ? COPY.rescanAction : COPY.scanAction}
+        {cleaning
+          ? '正在清理旧索引'
+          : active
+            ? COPY.scanInProgress
+            : scan
+              ? COPY.rescanAction
+              : COPY.scanAction}
       </Button>
     </div>
   );

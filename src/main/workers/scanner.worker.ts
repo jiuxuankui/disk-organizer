@@ -48,7 +48,7 @@ port.on('message', (message: ScanWorkerInbound) => {
 async function main(): Promise<void> {
   let db;
   try {
-    db = openDatabase(data.dbPath);
+    db = openDatabase(data.dbPath, { checkIntegrity: false });
   } catch (error) {
     post({ type: 'error', message: error instanceof Error ? error.message : String(error) });
     return;

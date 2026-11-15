@@ -100,6 +100,7 @@ export default function OverviewPage(): React.JSX.Element {
     (state) => state.recycleStatus?.available === false,
   );
   const active = isScanActive(scanState);
+  const cleaning = scanState?.cleaning === true;
 
   useEffect(() => {
     const onFocus = (): void => {
@@ -153,11 +154,15 @@ export default function OverviewPage(): React.JSX.Element {
             )}
             <Button
               icon={<SyncOutlined />}
-              disabled={active}
+              disabled={active || cleaning}
               onClick={openScanModal}
               type={scan ? 'default' : 'primary'}
             >
-              {scan ? COPY.rescanAction : COPY.scanAction}
+              {cleaning
+                ? '正在清理旧索引'
+                : scan
+                  ? COPY.rescanAction
+                  : COPY.scanAction}
             </Button>
           </Space>
         }
@@ -172,6 +177,13 @@ export default function OverviewPage(): React.JSX.Element {
       ) : (
         <>
           {active ? <Alert type="info" showIcon message={COPY.scanUpdating} /> : null}
+          {cleaning ? (
+            <Alert
+              type="info"
+              showIcon
+              message="正在后台清理上一次扫描的旧数据，完成后即可再次扫描"
+            />
+          ) : null}
           {skippedTotal > 0 ? (
             <Alert
               type="warning"
