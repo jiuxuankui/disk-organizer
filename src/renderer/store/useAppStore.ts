@@ -32,7 +32,7 @@ export interface Notice {
 
 const PAGE_KEY = 'disk-organizer:last-page';
 const DRIVE_KEY = 'disk-organizer:last-drive';
-const INDEX_SYNC_INTERVAL_MS = 15_000;
+const INDEX_SYNC_INTERVAL_MS = 10 * 60_000;
 let lastIndexSyncAt = 0;
 const VALID_PAGES: PageKey[] = ['overview', 'files', 'video', 'organize', 'settings'];
 

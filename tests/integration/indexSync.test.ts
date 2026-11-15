@@ -180,4 +180,22 @@ describe('IndexSyncService', () => {
 
     await expect(service.sync()).resolves.toEqual({ removed: 0, checked: 0, skipped: true });
   });
+
+  it('分批校验并限制单次工作量，下次从上次位置继续', async () => {
+    const { db, scanId, files } = seed();
+    fs.rmSync(files[0].path);
+    const service = new IndexSyncService({
+      db,
+      drives: readyDrives(),
+      batchSize: 1,
+      maxChecksPerRun: 1,
+      concurrency: 1,
+    });
+
+    await expect(service.sync()).resolves.toEqual({ removed: 1, checked: 1, skipped: false });
+    await expect(service.sync()).resolves.toEqual({ removed: 0, checked: 1, skipped: false });
+    await expect(service.sync()).resolves.toEqual({ removed: 0, checked: 0, skipped: false });
+    await expect(service.sync()).resolves.toEqual({ removed: 0, checked: 1, skipped: false });
+    expect(countFiles(db, scanId)).toBe(1);
+  });
 });

@@ -304,10 +304,20 @@ export interface IndexFileRef {
 
 const SYNC_CHUNK_SIZE = 500;
 
-export function listIndexFileRefs(db: DatabaseSync, scanId: number): IndexFileRef[] {
+export function listIndexFileRefs(
+  db: DatabaseSync,
+  scanId: number,
+  afterId = 0,
+  limit = 2000,
+): IndexFileRef[] {
   const rows = db
-    .prepare('SELECT id, path, path_key, size, drive FROM files WHERE scan_id = ? ORDER BY id')
-    .all(scanId) as unknown as Array<{
+    .prepare(
+      `SELECT id, path, path_key, size, drive FROM files
+       WHERE scan_id = ? AND id > ?
+       ORDER BY id
+       LIMIT ?`,
+    )
+    .all(scanId, afterId, limit) as unknown as Array<{
     id: number;
     path: string;
     path_key: string;

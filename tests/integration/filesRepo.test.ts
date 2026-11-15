@@ -3,7 +3,13 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { FileQuery, FileTypeKey } from '@shared/types';
 import { openDatabase } from '../../src/main/db/connection';
 import { createScan, finalizeScan, setActiveScanId } from '../../src/main/db/scansRepo';
-import { getFileById, listFolders, queryFileIds, queryFiles } from '../../src/main/db/filesRepo';
+import {
+  getFileById,
+  listFolders,
+  listIndexFileRefs,
+  queryFileIds,
+  queryFiles,
+} from '../../src/main/db/filesRepo';
 import { createTempDbPath } from './helpers';
 
 const cleanups: Array<() => void> = [];
@@ -115,6 +121,26 @@ describe('files repository', () => {
         'root.txt',
       ]);
       expect(result.items[0].type).toBe('diskImage');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('streams index refs in id order with keyset pagination', () => {
+    const db = tempDb();
+    try {
+      const scanId = seed(db);
+      const first = listIndexFileRefs(db, scanId, 0, 3);
+      expect(first).toHaveLength(3);
+      expect(first.map((ref) => ref.id)).toEqual(
+        [...first.map((ref) => ref.id)].sort((a, b) => a - b),
+      );
+      const second = listIndexFileRefs(db, scanId, first[2].id, 3);
+      expect(second).toHaveLength(3);
+      expect(second[0].id).toBeGreaterThan(first[2].id);
+      expect(listIndexFileRefs(db, scanId, second[2].id, 100)).toHaveLength(2);
+      expect(listIndexFileRefs(db, scanId, second[2].id, 100)[1]).toHaveProperty('pathKey');
+      expect(listIndexFileRefs(db, scanId, 999_999, 10)).toEqual([]);
     } finally {
       db.close();
     }

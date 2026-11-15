@@ -24,6 +24,14 @@ export function createMainWindow(): BrowserWindow {
 
   window.once('ready-to-show', () => window.show());
 
+  // 窗口被遮挡或最小化后，Chromium 可能丢失最后一帧；回到前台时强制重绘，避免白屏。
+  const repaint = (): void => {
+    if (!window.isDestroyed()) window.webContents.invalidate();
+  };
+  window.on('show', repaint);
+  window.on('restore', repaint);
+  window.on('focus', repaint);
+
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
   window.webContents.on('will-navigate', (event, url) => {

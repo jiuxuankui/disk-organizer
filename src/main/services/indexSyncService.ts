@@ -13,9 +13,19 @@ export interface IndexSyncServiceDeps {
   drives: IndexSyncDrives;
   isBusy?: () => boolean;
   concurrency?: number;
+  batchSize?: number;
+  maxChecksPerRun?: number;
 }
 
-const DEFAULT_CONCURRENCY = 32;
+const DEFAULT_CONCURRENCY = 8;
+const DEFAULT_BATCH_SIZE = 2000;
+const DEFAULT_MAX_CHECKS = 50000;
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+}
 
 async function statMissing(filePath: string): Promise<boolean> {
   try {
@@ -50,19 +60,29 @@ export class IndexSyncService {
   private readonly drives: IndexSyncDrives;
   private readonly isBusy: () => boolean;
   private readonly concurrency: number;
+  private readonly batchSize: number;
+  private readonly maxChecksPerRun: number;
   private syncing = false;
+  private scanId: number | null = null;
+  private cursor = 0;
 
   constructor(deps: IndexSyncServiceDeps) {
     this.db = deps.db;
     this.drives = deps.drives;
     this.isBusy = deps.isBusy ?? (() => false);
     this.concurrency = deps.concurrency ?? DEFAULT_CONCURRENCY;
+    this.batchSize = deps.batchSize ?? DEFAULT_BATCH_SIZE;
+    this.maxChecksPerRun = deps.maxChecksPerRun ?? DEFAULT_MAX_CHECKS;
   }
 
   async sync(): Promise<IndexSyncResult> {
     if (this.syncing || this.isBusy()) return { removed: 0, checked: 0, skipped: true };
     const scanId = getActiveScanId(this.db);
     if (scanId === null) return { removed: 0, checked: 0, skipped: true };
+    if (this.scanId !== scanId) {
+      this.scanId = scanId;
+      this.cursor = 0;
+    }
 
     this.syncing = true;
     try {
@@ -72,14 +92,34 @@ export class IndexSyncService {
           .filter((drive) => drive.ready)
           .map((drive) => drive.letter),
       );
-      const refs = listIndexFileRefs(this.db, scanId).filter((ref) => online.has(ref.drive));
-      const missing = await collectMissing(refs, this.concurrency);
-      if (missing.length === 0) return { removed: 0, checked: refs.length, skipped: false };
-      if (getActiveScanId(this.db) !== scanId || this.isBusy()) {
-        return { removed: 0, checked: refs.length, skipped: true };
+      const missing: IndexFileRef[] = [];
+      let examined = 0;
+      let checked = 0;
+      while (examined < this.maxChecksPerRun) {
+        const rows = listIndexFileRefs(this.db, scanId, this.cursor, this.batchSize);
+        if (rows.length === 0) {
+          this.cursor = 0;
+          break;
+        }
+        this.cursor = rows[rows.length - 1].id;
+        examined += rows.length;
+        const refs = rows.filter((ref) => online.has(ref.drive));
+        checked += refs.length;
+        if (refs.length > 0) missing.push(...(await collectMissing(refs, this.concurrency)));
+        if (rows.length < this.batchSize) {
+          this.cursor = 0;
+          break;
+        }
+        if (getActiveScanId(this.db) !== scanId || this.isBusy()) {
+          return { removed: 0, checked, skipped: true };
+        }
+        await yieldToEventLoop();
       }
-      pruneMissingFiles(this.db, scanId, missing);
-      return { removed: missing.length, checked: refs.length, skipped: false };
+      if (getActiveScanId(this.db) !== scanId || this.isBusy()) {
+        return { removed: 0, checked, skipped: true };
+      }
+      if (missing.length > 0) pruneMissingFiles(this.db, scanId, missing);
+      return { removed: missing.length, checked, skipped: false };
     } finally {
       this.syncing = false;
     }

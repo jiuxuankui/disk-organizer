@@ -114,18 +114,23 @@ export default function AppShell(): React.JSX.Element {
   }, [notice, message, clearNotice]);
 
   useEffect(() => {
-    const sync = (): void => {
-      void useAppStore.getState().syncIndex();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    // 等窗口重新绘制后再同步索引，避免回到前台瞬间和渲染抢资源。
+    const schedule = (): void => {
+      if (document.hidden) return;
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        if (!document.hidden) void useAppStore.getState().syncIndex();
+      }, 5000);
     };
-    void useAppStore.getState().syncIndex();
-    const onVisibility = (): void => {
-      if (!document.hidden) sync();
-    };
-    window.addEventListener('focus', sync);
-    document.addEventListener('visibilitychange', onVisibility);
+    schedule();
+    window.addEventListener('focus', schedule);
+    document.addEventListener('visibilitychange', schedule);
     return () => {
-      window.removeEventListener('focus', sync);
-      document.removeEventListener('visibilitychange', onVisibility);
+      if (timer !== null) clearTimeout(timer);
+      window.removeEventListener('focus', schedule);
+      document.removeEventListener('visibilitychange', schedule);
     };
   }, []);
 
