@@ -89,10 +89,23 @@ export function chooseOrganizeRule(
   return matches.find((rule) => getDriveLetter(rule.targetDir) === file.drive) ?? matches[0];
 }
 
+export type OrganizePathKind = 'file' | 'directory';
+
+export function organizeAttributeError(
+  kind: OrganizePathKind,
+  attributes: { system: boolean; reparsePoint: boolean } | null,
+): string | null {
+  if (!attributes) return '无法读取文件或文件夹属性';
+  if (attributes.reparsePoint) return '不能整理链接或重解析点';
+  if (kind === 'file' && attributes.system) return '不能整理系统文件';
+  return null;
+}
+
 export function organizeLocalPath(
   value: string,
   drives: Set<string>,
   protectedPaths: string[],
+  kind: OrganizePathKind = 'file',
 ): string {
   localOrganizePath.parse(value);
   if (!drives.has(getDriveLetter(value))) throw new Error('只支持可用的本地固定硬盘');
@@ -107,9 +120,8 @@ export function organizeLocalPath(
   ) {
     throw new Error('系统目录、软件目录或回收区不能参与整理');
   }
-  const attributes = readFileAttributes(resolved);
-  if (!attributes || attributes.reparsePoint || attributes.system)
-    throw new Error('不能整理系统文件或重解析点');
+  const message = organizeAttributeError(kind, readFileAttributes(resolved));
+  if (message) throw new Error(message);
   return resolved;
 }
 

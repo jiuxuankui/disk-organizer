@@ -283,6 +283,38 @@ export function listFolderContents(
   return { folders, files: rows.map(mapFileRow), totalFiles: total.count };
 }
 
+export function listSourceFileIds(
+  db: DatabaseSync,
+  scanId: number,
+  prefix: string,
+  afterId = 0,
+  limit = 2000,
+): number[] {
+  const rows = db
+    .prepare(
+      `SELECT id FROM files
+       WHERE scan_id = ? AND substr(path_key, 1, ?) = ? AND id > ?
+       ORDER BY id
+       LIMIT ?`,
+    )
+    .all(scanId, prefix.length, prefix, afterId, limit) as Array<{ id: number }>;
+  return rows.map((row) => row.id);
+}
+
+export function getFilesByIds(db: DatabaseSync, scanId: number, ids: number[]): FileRecord[] {
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT id, drive, path, name, ext, type, size, mtime_ms, ctime_ms, root_dir, dir_path
+       FROM files
+       WHERE scan_id = ? AND id IN (${placeholders})
+       ORDER BY id`,
+    )
+    .all(scanId, ...ids) as unknown as FileRow[];
+  return rows.map(mapFileRow);
+}
+
 export function getFileById(db: DatabaseSync, scanId: number, fileId: number): FileRecord | null {
   const row = db
     .prepare(

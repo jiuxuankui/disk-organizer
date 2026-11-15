@@ -26,11 +26,11 @@ export function registerOrganizeIpc(ctx: IpcContext): void {
     });
     return result.canceled ? null : result.filePaths[0];
   });
-  ipcMain.handle(IPC.organizePreview, (_event, raw: unknown) => {
+  ipcMain.handle(IPC.organizePreview, async (_event, raw: unknown) => {
     ensureIdle(ctx);
     return ctx.organize.plan(parseIpc(organizePreviewSchema, raw, '整理预览'));
   });
-  ipcMain.handle(IPC.organizeSmartPreview, (_event, raw: unknown) => {
+  ipcMain.handle(IPC.organizeSmartPreview, async (_event, raw: unknown) => {
     ensureIdle(ctx);
     return ctx.organize.planSmart(parseIpc(smartOrganizePreviewSchema, raw, '智能归类预览'));
   });

@@ -9,7 +9,7 @@ import {
   smartOrganizePreviewSchema,
   type OrganizeRule,
 } from '@shared/organize';
-import { chooseOrganizeRule, ruleMatchesFile } from '../../src/main/services/organizeCore';
+import { chooseOrganizeRule, organizeAttributeError, ruleMatchesFile } from '../../src/main/services/organizeCore';
 
 const MB = 1024 * 1024;
 
@@ -243,6 +243,21 @@ describe('organize rules and IPC boundary', () => {
     expect(organizeRuleSchema.safeParse({ ...rule, namePattern: 'x'.repeat(121) }).success).toBe(
       false,
     );
+  });
+
+  it('allows system directories but still rejects system files and reparse points', () => {
+    const normal = { system: false, reparsePoint: false };
+    const system = { system: true, reparsePoint: false };
+    const reparse = { system: false, reparsePoint: true };
+
+    expect(organizeAttributeError('directory', normal)).toBeNull();
+    expect(organizeAttributeError('file', normal)).toBeNull();
+    expect(organizeAttributeError('directory', system)).toBeNull();
+    expect(organizeAttributeError('file', system)).toBe('不能整理系统文件');
+    expect(organizeAttributeError('directory', reparse)).toBe('不能整理链接或重解析点');
+    expect(organizeAttributeError('file', reparse)).toBe('不能整理链接或重解析点');
+    expect(organizeAttributeError('directory', null)).toBe('无法读取文件或文件夹属性');
+    expect(organizeAttributeError('file', null)).toBe('无法读取文件或文件夹属性');
   });
 
   it('maps file types to smart categories and validates smart preview input', () => {

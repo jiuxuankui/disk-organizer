@@ -308,7 +308,7 @@ export default function OrganizePage(): React.JSX.Element {
               placeholder="选择任一本地盘上的文件夹，包含其子目录"
             />
             <Typography.Text type="secondary">
-              每次最多预览 10000 个索引文件；来源过大时请选择更小的子目录。
+              整盘会分批匹配，最多预览 10000 个命中规则的文件；超过时请缩小来源或规则范围。
             </Typography.Text>
           </Space>
         </Card>
