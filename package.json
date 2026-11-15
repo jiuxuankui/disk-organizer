@@ -1,6 +1,6 @@
 {
   "name": "disk-organizer",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "本地硬盘整理工具",
   "author": "九轩葵",
   "main": "./out/main/index.js",

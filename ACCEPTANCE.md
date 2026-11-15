@@ -43,6 +43,7 @@
 | B9 | 通过 | 扫描前后 `keep.txt` 的 SHA-256、大小、修改时间完全一致 |
 | B10 | 通过（受限环境） | 集成测试 `records permission failures and keeps scanning the rest` 注入 EACCES，验证记录跳过并继续扫描；当前账户为管理员且持有 SeBackupPrivilege，无法真实制造无权限目录（平台限制） |
 | B11 | 通过 | 数据目录不可写时给出明确错误并退出，未生成损坏数据库；恢复原数据目录后旧数据仍可用 |
+| B12 | 通过 | 扫描边遍历边读取文件信息，本次临时表随索引写入即时清空；完成后旧索引由后台线程清理，清理期间界面可正常浏览，侧边栏与扫描面板提示“正在清理旧索引”并禁止重扫，完成后恢复；证据：`scan.test.ts`、`scanService.test.ts`、`cleanupService.test.ts` |
 
 ### C. 首页
 
