@@ -60,6 +60,9 @@ test.beforeAll(async () => {
   fs.writeFileSync(path.join(fixture, 'smart', 'pic.png'), 'fake image bytes');
   fs.writeFileSync(path.join(fixture, 'smart', 'note.txt'), 'smart note');
   fs.writeFileSync(path.join(fixture, 'smart', 'junk.bin'), 'junk');
+  fs.mkdirSync(path.join(fixture, 'folder-e2e', 'nested'), { recursive: true });
+  fs.writeFileSync(path.join(fixture, 'folder-e2e', 'inside.txt'), 'folder payload');
+  fs.writeFileSync(path.join(fixture, 'folder-e2e', 'nested', 'deep.txt'), 'deep payload');
   app = await electron.launch({
     executablePath: path.join(project, 'node_modules/electron/dist/electron.exe'),
     args: [project],
@@ -106,12 +109,12 @@ test('自定义规则持久化，默认不勾选，取消确认不移动，同�
   await expect(rows()).toHaveCount(1);
   await expect(rows()).toContainText('report (1).txt');
   await expect(rows().locator('input[type=checkbox]')).not.toBeChecked();
-  await expect(page.getByRole('button', { name: '移动所选文件', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '移动所选项目', exact: true })).toBeDisabled();
   await rows().locator('input[type=checkbox]').check();
-  await page.getByRole('button', { name: '移动所选文件', exact: true }).click();
+  await page.getByRole('button', { name: '移动所选项目', exact: true }).click();
   await modal().getByRole('button', { name: '暂不移动', exact: true }).click();
   expect(fs.existsSync(path.join(fixture, 'report.txt'))).toBe(true);
-  await page.getByRole('button', { name: '移动所选文件', exact: true }).click();
+  await page.getByRole('button', { name: '移动所选项目', exact: true }).click();
   await modal().getByRole('button', { name: '确认开始移动', exact: true }).click();
   await expect(page.locator('.organize-results')).toContainText('同盘移动完成');
   expect(fs.readFileSync(path.join(output, 'report.txt'), 'utf8')).toBe('do not overwrite');
@@ -132,7 +135,7 @@ test('跨盘移动必须单独勾选确认，校验后的副本和可恢复原�
   await previewFile('cross.txt');
   await expect(rows()).toContainText('跨盘');
   const original = hash(path.join(fixture, 'cross.txt'));
-  await page.getByRole('button', { name: '移动所选文件', exact: true }).click();
+  await page.getByRole('button', { name: '移动所选项目', exact: true }).click();
   const confirm = modal().getByRole('checkbox', { name: '我确认跨盘移动，并保留可恢复原件' });
   await expect(confirm).not.toBeChecked();
   await expect(modal().getByRole('button', { name: '确认开始移动', exact: true })).toBeDisabled();
@@ -156,7 +159,7 @@ test('跨盘移动必须单独勾选确认，校验后的副本和可恢复原�
 test('停止跨盘任务保留原文件且移除本次临时副本', async () => {
   await page.getByRole('textbox', { name: '扩展名条件', exact: true }).fill('bin');
   await previewFile('cancel.bin');
-  await page.getByRole('button', { name: '移动所选文件', exact: true }).click();
+  await page.getByRole('button', { name: '移动所选项目', exact: true }).click();
   await modal().getByRole('checkbox', { name: '我确认跨盘移动，并保留可恢复原件' }).check();
   await modal().getByRole('button', { name: '确认开始移动', exact: true }).click();
   await page.getByRole('button', { name: '停止整理', exact: true }).click();
@@ -294,10 +297,51 @@ test('一键智能归类：分类预览、默认不含其他、按需建子目�
   expect(fs.readdirSync(smartOut)).toEqual([]);
 
   await rows().filter({ hasText: 'movie.mp4' }).locator('input[type=checkbox]').check();
-  await page.getByRole('button', { name: '移动所选文件', exact: true }).click();
+  await page.getByRole('button', { name: '移动所选项目', exact: true }).click();
   await modal().getByRole('button', { name: '确认开始移动', exact: true }).click();
   await expect(page.locator('.organize-results')).toContainText('同盘移动完成');
   expect(fs.existsSync(path.join(smartOut, '视频', 'movie.mp4'))).toBe(true);
   expect(fs.existsSync(path.join(fixture, 'smart', 'movie.mp4'))).toBe(false);
   expect(fs.readdirSync(smartOut)).toEqual(['视频']);
+});
+
+test('文件夹规则整目录移动到同盘目标并同步文件页', async () => {
+  const folderSource = path.join(fixture, 'folder-e2e');
+
+  await page.getByText('自定义规则', { exact: true }).click();
+  const removeRule = page.getByRole('button', { name: '移除规则', exact: true });
+  while ((await removeRule.count()) > 0) await removeRule.first().click();
+  const removeSource = page.getByRole('button', { name: '移除来源', exact: true });
+  while ((await removeSource.count()) > 0) await removeSource.first().click();
+
+  await page.getByRole('button', { name: '添加规则', exact: true }).click();
+  await page.getByRole('textbox', { name: '规则名称', exact: true }).fill('文件夹归档');
+  await page.getByLabel('规则文件类型', { exact: true }).first().click();
+  await page.locator('.ant-select-dropdown:visible').getByText('文件夹', { exact: true }).click();
+  await expect(page.getByRole('textbox', { name: '扩展名条件', exact: true })).toBeDisabled();
+  await expect(page.getByRole('spinbutton', { name: '最小大小' })).toBeDisabled();
+  await page.getByRole('textbox', { name: '文件名包含', exact: true }).fill('folder-e2e');
+  await choose('选择目标文件夹', output);
+  await choose('选择来源文件夹', fixture);
+  await page.getByRole('button', { name: '生成整理预览', exact: true }).click();
+  await expect(rows()).toHaveCount(1);
+  await expect(rows()).toContainText('folder-e2e');
+  await expect(rows()).toContainText('文件夹');
+  await rows().locator('input[type=checkbox]').check();
+  await page.getByRole('button', { name: '移动所选项目', exact: true }).click();
+  await modal().getByRole('button', { name: '确认开始移动', exact: true }).click();
+  await expect(page.locator('.organize-results')).toContainText('文件夹移动完成');
+  expect(fs.readFileSync(path.join(output, 'folder-e2e', 'inside.txt'), 'utf8')).toBe(
+    'folder payload',
+  );
+  expect(fs.readFileSync(path.join(output, 'folder-e2e', 'nested', 'deep.txt'), 'utf8')).toBe(
+    'deep payload',
+  );
+  expect(fs.existsSync(folderSource)).toBe(false);
+
+  await page.locator('.app-nav').getByText('全部文件', { exact: true }).click();
+  await page.locator('.files-search input').fill('inside.txt');
+  await expect(page.locator('.files-panel .ant-table-row')).toHaveCount(1);
+  await expect(page.locator('.files-panel .ant-table-row')).toContainText('folder-e2e');
+  await page.locator('.app-nav').getByText('归类整理', { exact: true }).click();
 });

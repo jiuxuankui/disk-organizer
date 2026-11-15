@@ -10,9 +10,11 @@ import {
   type OrganizeRule,
 } from '@shared/organize';
 import {
+  chooseFolderRule,
   chooseOrganizeRule,
   organizeAttributeError,
   ruleMatchesFile,
+  ruleMatchesFolder,
 } from '../../src/main/services/organizeCore';
 
 const MB = 1024 * 1024;
@@ -63,6 +65,9 @@ describe('organize rules and IPC boundary', () => {
   it('requires explicit cross-drive confirmation data and bounded selected ids', () => {
     const input = { token: rule.id, fileIds: [1], confirmCrossDrive: false };
     expect(organizeStartSchema.parse(input)).toEqual(input);
+    expect(organizeStartSchema.parse({ ...input, fileIds: [-1] }).fileIds).toEqual([-1]);
+    expect(organizeStartSchema.safeParse({ ...input, fileIds: [0] }).success).toBe(false);
+    expect(organizeStartSchema.safeParse({ ...input, fileIds: [1.5] }).success).toBe(false);
     expect(organizeStartSchema.safeParse({ token: rule.id, fileIds: [1] }).success).toBe(false);
     expect(organizeStartSchema.safeParse({ ...input, fileIds: [] }).success).toBe(false);
     expect(organizeStartSchema.safeParse({ ...input, fileIds: Array(50001).fill(1) }).success).toBe(
@@ -321,10 +326,80 @@ describe('organize rules and IPC boundary', () => {
     expect(organizeAttributeError('file', normal)).toBeNull();
     expect(organizeAttributeError('directory', system)).toBeNull();
     expect(organizeAttributeError('file', system)).toBe('不能整理系统文件');
+    expect(organizeAttributeError('folder', system)).toBe('不能整理系统文件夹');
+    expect(organizeAttributeError('directory', system)).toBeNull();
     expect(organizeAttributeError('directory', reparse)).toBe('不能整理链接或重解析点');
     expect(organizeAttributeError('file', reparse)).toBe('不能整理链接或重解析点');
     expect(organizeAttributeError('directory', null)).toBe('无法读取文件或文件夹属性');
     expect(organizeAttributeError('file', null)).toBe('无法读取文件或文件夹属性');
+  });
+
+  it('matches folder rules by folder name and path only', () => {
+    const folderRule: OrganizeRule = {
+      ...rule,
+      type: 'folder',
+      extensions: ['txt'],
+      nameContains: 'album',
+      namePattern: '',
+      targetDir: 'C:\\归档',
+      minSize: 10,
+      maxSize: 20,
+      mtimeFrom: 1,
+      mtimeTo: 2,
+    };
+    expect(ruleMatchesFolder(folderRule, 'C:\\来源\\Album-2024')).toBe(true);
+    expect(ruleMatchesFolder(folderRule, 'C:\\来源\\照片')).toBe(false);
+    expect(
+      ruleMatchesFolder({ ...folderRule, minSize: 100, matchMode: 'any' }, 'C:\\来源\\album'),
+    ).toBe(true);
+
+    const patternRule: OrganizeRule = {
+      ...folderRule,
+      nameContains: '',
+      namePattern: 'XX-XXXX',
+      minSize: null,
+      maxSize: null,
+      mtimeFrom: null,
+      mtimeTo: null,
+    };
+    expect(ruleMatchesFolder(patternRule, 'C:\\来源\\相册-2024')).toBe(true);
+    expect(ruleMatchesFolder(patternRule, 'C:\\来源\\相册-2024 备份')).toBe(false);
+    expect(ruleMatchesFolder(patternRule, 'C:\\来源\\相册.v2')).toBe(false);
+    expect(
+      ruleMatchesFolder(
+        { ...patternRule, namePatternMode: 'contains' },
+        'C:\\来源\\会议 相册-2024 备份',
+      ),
+    ).toBe(true);
+    expect(ruleMatchesFolder({ ...patternRule, namePattern: 'XXXXX' }, 'C:\\来源\\相册.v2')).toBe(
+      true,
+    );
+
+    expect(
+      ruleMatchesFolder({ ...folderRule, nameContains: '', pathContains: '来源' }, 'C:\\来源\\x'),
+    ).toBe(true);
+    expect(
+      ruleMatchesFolder({ ...folderRule, nameContains: '', pathContains: '不存在' }, 'C:\\来源\\x'),
+    ).toBe(false);
+
+    expect(ruleMatchesFile(file, folderRule)).toBe(false);
+    expect(ruleMatchesFile(file, { ...folderRule, matchMode: 'any', pathContains: 'C:\\' })).toBe(
+      false,
+    );
+    expect(ruleMatchesFolder({ ...folderRule, type: 'document' }, 'C:\\来源\\album')).toBe(false);
+
+    const localFolderRule = { ...folderRule, targetDir: 'C:\\归档' };
+    const remoteFolderRule = { ...folderRule, targetDir: 'D:\\归档' };
+    expect(chooseFolderRule('C:\\来源\\album', [remoteFolderRule, localFolderRule], 'order')).toBe(
+      remoteFolderRule,
+    );
+    expect(
+      chooseFolderRule('C:\\来源\\album', [remoteFolderRule, localFolderRule], 'sameDrive'),
+    ).toBe(localFolderRule);
+    expect(chooseFolderRule('C:\\来源\\x', [folderRule], 'order')).toBeUndefined();
+    expect(
+      chooseFolderRule('C:\\来源\\album', [{ ...folderRule, enabled: false }], 'order'),
+    ).toBeUndefined();
   });
 
   it('maps file types to smart categories and validates smart preview input', () => {

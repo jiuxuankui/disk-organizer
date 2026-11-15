@@ -16,7 +16,11 @@ export const organizeRuleSchema = z
     id: z.string().uuid(),
     name: z.string().trim().min(1).max(80),
     enabled: z.boolean(),
-    type: z.enum(['all', ...FILE_TYPES.map((item) => item.key)] as ['all', ...FileTypeKey[]]),
+    type: z.enum(['all', 'folder', ...FILE_TYPES.map((item) => item.key)] as [
+      'all',
+      'folder',
+      ...FileTypeKey[],
+    ]),
     extensions: z
       .array(
         z
@@ -67,12 +71,21 @@ export const organizePreviewSchema = z
 export const organizeStartSchema = z
   .object({
     token: z.string().uuid(),
-    fileIds: z.array(z.number().int().positive()).min(1).max(ORGANIZE_MATCH_LIMIT),
+    fileIds: z
+      .array(
+        z
+          .number()
+          .int()
+          .refine((value) => value !== 0, '无效的项目编号'),
+      )
+      .min(1)
+      .max(ORGANIZE_MATCH_LIMIT),
     confirmCrossDrive: z.boolean(),
   })
   .strict();
 export type OrganizeRule = z.infer<typeof organizeRuleSchema>;
 export type OrganizeNamePatternMode = OrganizeRule['namePatternMode'];
+export type OrganizeRuleType = OrganizeRule['type'];
 export type OrganizePreviewRequest = z.infer<typeof organizePreviewSchema>;
 export type OrganizeStartRequest = z.infer<typeof organizeStartSchema>;
 
@@ -209,6 +222,7 @@ export function createPresetRule(
 
 export interface OrganizeItem {
   id: number;
+  kind: 'file' | 'folder';
   source: string;
   target: string;
   size: number;

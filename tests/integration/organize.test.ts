@@ -40,6 +40,12 @@ const makeRule = (targetDir: string): OrganizeRule => ({
   pathContains: '',
   matchMode: 'all',
 });
+const makeFolderRule = (targetDir: string, patch: Partial<OrganizeRule> = {}): OrganizeRule => ({
+  ...makeRule(targetDir),
+  name: '文件夹归档',
+  type: 'folder',
+  ...patch,
+});
 function setup() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'disk-organize-test-'));
   const cross = fs.mkdtempSync(path.join(process.cwd(), '.tmp-organize-cross-'));
@@ -511,5 +517,141 @@ describe('organize preview source limits', () => {
       [movie.id, pic.id].sort((a, b) => a - b),
     );
     expect(preview.items.every((item) => item.allowed)).toBe(true);
+  });
+});
+
+describe('folder organization', () => {
+  it('moves an entire folder and updates the index of every file inside', async () => {
+    const s = setup();
+    const image = s.insert(path.join('album-2024', 'a.jpg'), 'image');
+    const deep = s.insert(path.join('album-2024', 'sub', 'b.txt'), 'deep');
+    const loose = s.insert('loose.txt', 'loose');
+    const preview = await s.job.plan({
+      sourceDirs: [s.sourceDir],
+      rules: [makeFolderRule(s.output, { nameContains: 'album' })],
+      priority: 'order',
+    });
+    expect(preview.items).toHaveLength(1);
+    const folder = preview.items[0];
+    expect(folder).toMatchObject({ kind: 'folder', allowed: true, crossDrive: false });
+    expect(folder.id).toBeLessThan(0);
+    expect(folder.target).toBe(path.join(s.output, 'album-2024'));
+
+    s.job.start({ token: preview.token, fileIds: [folder.id], confirmCrossDrive: false });
+    await s.job.whenIdle();
+    expect(s.job.getState().results.map((item) => item.status)).toEqual(['moved']);
+    expect(s.job.getState().results[0].message).toContain('文件夹移动完成');
+    expect(fs.existsSync(path.join(s.output, 'album-2024', 'a.jpg'))).toBe(true);
+    expect(fs.existsSync(path.join(s.output, 'album-2024', 'sub', 'b.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(s.sourceDir, 'album-2024'))).toBe(false);
+    expect(fs.existsSync(loose.file)).toBe(true);
+    expect(getFileById(s.db, s.scanId, image.id)?.path).toBe(
+      path.join(s.output, 'album-2024', 'a.jpg'),
+    );
+    expect(getFileById(s.db, s.scanId, deep.id)?.path).toBe(
+      path.join(s.output, 'album-2024', 'sub', 'b.txt'),
+    );
+    expect(getFileById(s.db, s.scanId, deep.id)?.dirPath).toBe(
+      path.join(s.output, 'album-2024', 'sub'),
+    );
+  });
+
+  it('lists only the outermost matching folder and hides files it already covers', async () => {
+    const s = setup();
+    s.insert(path.join('album', 'top.txt'), 'top');
+    s.insert(path.join('album', 'inner', 'deep.txt'), 'deep');
+    const preview = await s.job.plan({
+      sourceDirs: [s.sourceDir],
+      rules: [makeRule(s.output), makeFolderRule(s.output, { pathContains: 'album' })],
+      priority: 'order',
+    });
+    expect(preview.items.filter((item) => item.kind === 'folder')).toHaveLength(1);
+    expect(preview.items[0].source).toBe(path.join(s.sourceDir, 'album'));
+    expect(preview.items.some((item) => item.kind === 'file')).toBe(false);
+  });
+
+  it('numbers a colliding folder target and never overwrites existing content', async () => {
+    const s = setup();
+    s.insert(path.join('album', 'new.txt'), 'new');
+    fs.mkdirSync(path.join(s.output, 'album'));
+    fs.writeFileSync(path.join(s.output, 'album', 'keep.txt'), 'old');
+    const preview = await s.job.plan({
+      sourceDirs: [s.sourceDir],
+      rules: [makeFolderRule(s.output, { nameContains: 'album' })],
+      priority: 'order',
+    });
+    expect(preview.items[0].target).toBe(path.join(s.output, 'album (1)'));
+    s.job.start({ token: preview.token, fileIds: [preview.items[0].id], confirmCrossDrive: false });
+    await s.job.whenIdle();
+    expect(fs.readFileSync(path.join(s.output, 'album', 'keep.txt'), 'utf8')).toBe('old');
+    expect(fs.readFileSync(path.join(s.output, 'album (1)', 'new.txt'), 'utf8')).toBe('new');
+  });
+
+  it('blocks cross-drive folders, targets inside the folder and the same location', async () => {
+    const s = setup();
+    s.insert(path.join('album', 'a.txt'), 'a');
+
+    const crossPreview = await s.job.plan({
+      sourceDirs: [s.sourceDir],
+      rules: [makeFolderRule(s.cross, { nameContains: 'album' })],
+      priority: 'order',
+    });
+    expect(crossPreview.items[0]).toMatchObject({
+      kind: 'folder',
+      crossDrive: true,
+      allowed: false,
+    });
+    expect(crossPreview.items[0].message).toContain('文件夹不支持跨盘整理');
+    expect(() =>
+      s.job.start({
+        token: crossPreview.token,
+        fileIds: [crossPreview.items[0].id],
+        confirmCrossDrive: true,
+      }),
+    ).toThrow('不可移动');
+
+    const inside = path.join(s.sourceDir, 'album', 'dest');
+    fs.mkdirSync(inside);
+    const insidePreview = await s.job.plan({
+      sourceDirs: [s.sourceDir],
+      rules: [makeFolderRule(inside, { nameContains: 'album' })],
+      priority: 'order',
+    });
+    expect(insidePreview.items[0].allowed).toBe(false);
+    expect(insidePreview.items[0].message).toBe('目标文件夹不能位于来源文件夹内部');
+
+    const samePreview = await s.job.plan({
+      sourceDirs: [s.sourceDir],
+      rules: [makeFolderRule(s.sourceDir, { nameContains: 'album' })],
+      priority: 'order',
+    });
+    expect(samePreview.items[0].allowed).toBe(false);
+    expect(samePreview.items[0].message).toBe('已在目标文件夹，无需移动');
+  });
+
+  it('rejects system folders and linked folders', async () => {
+    const s = setup();
+    s.insert(path.join('system-flag', 'x.txt'), 'x');
+    execFileSync('attrib', ['+s', path.join(s.sourceDir, 'system-flag')]);
+    const systemPreview = await s.job.plan({
+      sourceDirs: [s.sourceDir],
+      rules: [makeFolderRule(s.output, { nameContains: 'system-flag' })],
+      priority: 'order',
+    });
+    expect(systemPreview.items[0].allowed).toBe(false);
+    expect(systemPreview.items[0].message).toBe('不能整理系统文件夹');
+
+    const real = path.join(s.sourceDir, 'real-target');
+    fs.mkdirSync(real);
+    const link = path.join(s.sourceDir, 'linked');
+    fs.symlinkSync(real, link, 'junction');
+    s.insert(path.join('linked', 'y.txt'), 'y');
+    const linkPreview = await s.job.plan({
+      sourceDirs: [s.sourceDir],
+      rules: [makeFolderRule(s.output, { nameContains: 'linked' })],
+      priority: 'order',
+    });
+    expect(linkPreview.items[0].allowed).toBe(false);
+    expect(linkPreview.items[0].message).toContain('链接或重定向');
   });
 });

@@ -8,6 +8,8 @@ import type {
   OrganizeItem,
   OrganizePreview,
   OrganizePreviewRequest,
+  OrganizePriority,
+  OrganizeRule,
   OrganizeStartRequest,
   OrganizeState,
   SmartCategory,
@@ -15,10 +17,17 @@ import type {
 } from '@shared/organize';
 import { SMART_CATEGORY_LABELS, smartCategoryOf, ORGANIZE_MATCH_LIMIT } from '@shared/organize';
 import { getActiveScanId } from '../db/scansRepo';
-import { getFileById, getFilesByIds, listSourceFileIds } from '../db/filesRepo';
-import { updateOrganizedFile } from '../db/organizeRepo';
 import {
+  getFileById,
+  getFilesByIds,
+  listSourceFileIds,
+  listSourceFolderDirs,
+} from '../db/filesRepo';
+import { updateOrganizedFile, updateOrganizedFolder } from '../db/organizeRepo';
+import {
+  assertFolderUnchanged,
   assertUnchanged,
+  chooseFolderRule,
   chooseOrganizeRule,
   copyVerifiedForMove,
   organizeLocalPath,
@@ -140,6 +149,7 @@ export class OrganizeService {
             let target = path.join(rule.targetDir, file.name);
             const item: OrganizeItem = {
               id: file.id,
+              kind: 'file',
               source: file.path,
               target,
               size: file.size,
@@ -185,12 +195,114 @@ export class OrganizeService {
           }
         });
       }
+      const folderRules = rules.filter((rule) => rule.type === 'folder');
+      const keptFolders = new Set<string>();
+      if (folderRules.length > 0) {
+        const candidates = (
+          await this.collectFolders(scanId, sources, folderRules, input.priority)
+        ).sort((a, b) => a.key.length - b.key.length);
+        let nextFolderId = 0;
+        for (const candidate of candidates) {
+          if ([...keptFolders].some((parent) => isSameOrSubPath(candidate.key, parent))) continue;
+          const item: OrganizeItem = {
+            id: (nextFolderId -= 1),
+            kind: 'folder',
+            source: candidate.path,
+            target: '',
+            size: 0,
+            rule: candidate.rule.name,
+            crossDrive: false,
+            allowed: false,
+            message: '',
+          };
+          items.push(item);
+          try {
+            const dir = this.local(candidate.path, 'folder');
+            const key = normalizePathKey(dir);
+            const before = fs.lstatSync(dir);
+            if (!before.isDirectory() || before.isSymbolicLink())
+              throw new Error('文件夹已变化，请重新预览');
+            const targetDir = candidate.rule.targetDir;
+            if (isSameOrSubPath(targetDir, dir))
+              throw new Error('目标文件夹不能位于来源文件夹内部');
+            const name = path.basename(dir);
+            let target = path.join(targetDir, name);
+            item.target = target;
+            if (normalizePathKey(target) === key) throw new Error('已在目标文件夹，无需移动');
+            let suffix = 0;
+            while (fs.existsSync(target) || reserved.has(normalizePathKey(target))) {
+              suffix += 1;
+              if (suffix > 10000) throw new Error('目标同名文件夹过多');
+              target = path.join(targetDir, `${name} (${suffix})`);
+            }
+            item.target = target;
+            const parent = fs.statSync(targetDir);
+            if (getDriveLetter(dir) !== getDriveLetter(target) || before.dev !== parent.dev) {
+              item.crossDrive = true;
+              throw new Error('文件夹不支持跨盘整理');
+            }
+            reserved.add(normalizePathKey(target));
+            item.allowed = true;
+            item.message = '同盘：整目录移动，内部文件内容不重写';
+            entries.push({ item, before, parent, createDir: null });
+            keptFolders.add(key);
+          } catch (error) {
+            item.message = error instanceof Error ? error.message : String(error);
+          }
+          if (items.length > ORGANIZE_MATCH_LIMIT) throw new Error(TOO_MANY_MATCHES);
+        }
+      }
+      if (keptFolders.size > 0) {
+        const keepSource = (source: string): boolean =>
+          ![...keptFolders].some((folder) => isSameOrSubPath(source, folder));
+        const visible = items.filter((item) => item.kind === 'folder' || keepSource(item.source));
+        const planned = entries.filter(
+          (entry) => entry.item.kind === 'folder' || keepSource(entry.item.source),
+        );
+        items.length = 0;
+        items.push(...visible);
+        entries.length = 0;
+        entries.push(...planned);
+      }
       const token = randomUUID();
       this.preview = { token, scanId, entries };
       return { token, items };
     } finally {
       this.planning = false;
     }
+  }
+  private async collectFolders(
+    scanId: number,
+    sources: string[],
+    rules: OrganizeRule[],
+    priority: OrganizePriority,
+  ): Promise<Array<{ path: string; key: string; rule: OrganizeRule }>> {
+    const found = new Map<string, { path: string; key: string; rule: OrganizeRule }>();
+    for (const source of sources) {
+      const base = normalizePathKey(source).replace(/\\+$/, '');
+      const prefix = `${base}\\`;
+      let afterKey = '';
+      for (;;) {
+        const dirs = listSourceFolderDirs(
+          this.deps.db,
+          scanId,
+          prefix,
+          afterKey,
+          SOURCE_BATCH_SIZE,
+        );
+        if (dirs.length === 0) break;
+        afterKey = dirs[dirs.length - 1].key;
+        for (const dir of dirs) {
+          if (found.has(dir.key)) continue;
+          const rule = chooseFolderRule(dir.path, rules, priority);
+          if (rule) found.set(dir.key, { ...dir, rule });
+        }
+        if (found.size > ORGANIZE_MATCH_LIMIT) throw new Error(TOO_MANY_MATCHES);
+        if (dirs.length < SOURCE_BATCH_SIZE) break;
+        await setImmediate();
+      }
+    }
+    return [...found.values()];
   }
   private checkRecycle(source: string, size: number, usedBytes = 0): void {
     if (this.deps.longTrash.needsQuarantine(source)) return;
@@ -246,6 +358,7 @@ export class OrganizeService {
             let target = path.join(state.dir, file.name);
             const item: OrganizeItem = {
               id: file.id,
+              kind: 'file',
               source: file.path,
               target,
               size: file.size,
@@ -337,6 +450,47 @@ export class OrganizeService {
       let published = false;
       let moved = false;
       this.state.currentPath = item.source;
+      if (item.kind === 'folder') {
+        let movedFolder = false;
+        try {
+          const dir = this.local(item.source, 'folder');
+          const targetDir = this.local(path.dirname(item.target), 'directory');
+          const currentParent = fs.statSync(targetDir);
+          if (currentParent.ino !== parent.ino || currentParent.dev !== parent.dev)
+            throw new Error('目标目录已变化，请重新预览');
+          assertFolderUnchanged(dir, before);
+          if (
+            getDriveLetter(dir) !== getDriveLetter(item.target) ||
+            before.dev !== currentParent.dev
+          )
+            throw new Error('文件夹不支持跨盘整理');
+          if (normalizePathKey(item.target) === normalizePathKey(dir))
+            throw new Error('已在目标文件夹，无需移动');
+          signal.throwIfAborted();
+          moveFileNoReplace(dir, item.target);
+          movedFolder = true;
+          const updated = updateOrganizedFolder(this.deps.db, scanId, dir, item.target);
+          if (updated === 0) throw new Error('文件夹索引已变化，请重新扫描');
+          this.state.results.push({
+            source: item.source,
+            target: item.target,
+            status: 'moved',
+            message: '文件夹移动完成，内部文件随目录移动，索引已更新',
+          });
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          this.state.results.push({
+            source: item.source,
+            target: movedFolder ? item.target : '',
+            status: signal.aborted ? 'cancelled' : 'failed',
+            message: movedFolder
+              ? `文件夹已移动，索引更新失败，请重新扫描：${reason}`
+              : `原文件夹保留：${reason}`,
+          });
+        }
+        this.state.processed += 1;
+        continue;
+      }
       try {
         this.local(item.source);
         let directory: string;

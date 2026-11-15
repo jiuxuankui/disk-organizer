@@ -57,6 +57,7 @@ export function namePatternMatches(name: string, pattern: RegExp): boolean {
 }
 
 export function ruleMatchesFile(file: FileRecord, rule: OrganizeRule): boolean {
+  if (rule.type === 'folder') return false;
   const tests: Array<() => boolean> = [];
   if (rule.type !== 'all') tests.push(() => rule.type === file.type);
   if (rule.extensions.length > 0)
@@ -98,7 +99,35 @@ export function chooseOrganizeRule(
   return matches.find((rule) => getDriveLetter(rule.targetDir) === file.drive) ?? matches[0];
 }
 
-export type OrganizePathKind = 'file' | 'directory';
+export function ruleMatchesFolder(rule: OrganizeRule, folder: string): boolean {
+  if (rule.type !== 'folder') return false;
+  const name = path.win32.basename(folder);
+  const tests: Array<() => boolean> = [];
+  if (rule.nameContains.trim() !== '')
+    tests.push(() => name.toLowerCase().includes(rule.nameContains.trim().toLowerCase()));
+  if (rule.namePattern.trim() !== '') {
+    const pattern = compileNamePattern(rule.namePattern, rule.namePatternMode);
+    if (pattern) tests.push(() => pattern.test(normalizeForMatch(name)));
+  }
+  if (rule.pathContains.trim() !== '')
+    tests.push(() => folder.toLowerCase().includes(rule.pathContains.trim().toLowerCase()));
+  if (tests.length === 0) return true;
+  return rule.matchMode === 'any' ? tests.some((test) => test()) : tests.every((test) => test());
+}
+
+export function chooseFolderRule(
+  folder: string,
+  rules: OrganizeRule[],
+  priority: OrganizePriority = 'sameDrive',
+): OrganizeRule | undefined {
+  const matches = rules.filter((rule) => rule.enabled && ruleMatchesFolder(rule, folder));
+  if (priority === 'order') return matches[0];
+  return (
+    matches.find((rule) => getDriveLetter(rule.targetDir) === getDriveLetter(folder)) ?? matches[0]
+  );
+}
+
+export type OrganizePathKind = 'file' | 'directory' | 'folder';
 
 export function organizeAttributeError(
   kind: OrganizePathKind,
@@ -107,6 +136,7 @@ export function organizeAttributeError(
   if (!attributes) return '无法读取文件或文件夹属性';
   if (attributes.reparsePoint) return '不能整理链接或重解析点';
   if (kind === 'file' && attributes.system) return '不能整理系统文件';
+  if (kind === 'folder' && attributes.system) return '不能整理系统文件夹';
   return null;
 }
 
@@ -145,6 +175,18 @@ export function assertUnchanged(file: string, before: fs.Stats): void {
     after.dev !== before.dev
   ) {
     throw new Error('文件已变化，请重新预览');
+  }
+}
+
+export function assertFolderUnchanged(folder: string, before: fs.Stats): void {
+  const after = fs.lstatSync(folder);
+  if (
+    !after.isDirectory() ||
+    after.isSymbolicLink() ||
+    after.ino !== before.ino ||
+    after.dev !== before.dev
+  ) {
+    throw new Error('文件夹已变化，请重新预览');
   }
 }
 

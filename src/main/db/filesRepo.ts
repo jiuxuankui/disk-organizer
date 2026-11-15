@@ -301,6 +301,25 @@ export function listSourceFileIds(
   return rows.map((row) => row.id);
 }
 
+export function listSourceFolderDirs(
+  db: DatabaseSync,
+  scanId: number,
+  prefix: string,
+  afterKey = '',
+  limit = 2000,
+): Array<{ path: string; key: string }> {
+  const rows = db
+    .prepare(
+      `SELECT MIN(dir_path) AS path, dir_key AS key FROM files
+       WHERE scan_id = ? AND substr(path_key, 1, ?) = ? AND dir_key > ?
+       GROUP BY dir_key
+       ORDER BY dir_key
+       LIMIT ?`,
+    )
+    .all(scanId, prefix.length, prefix, afterKey, limit) as Array<{ path: string; key: string }>;
+  return rows;
+}
+
 export function getFilesByIds(db: DatabaseSync, scanId: number, ids: number[]): FileRecord[] {
   if (ids.length === 0) return [];
   const placeholders = ids.map(() => '?').join(', ');

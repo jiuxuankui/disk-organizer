@@ -299,7 +299,7 @@ export default function OrganizePage(): React.JSX.Element {
           description={
             mode === 'smart'
               ? '按文件类型分到目标根目录下的“视频、图片、文档、音乐、压缩包、安装包、其他”子文件夹；子文件夹只在真正有文件移入时才创建。跨盘串行复制并校验 SHA-256，成功后原件进入 Windows 回收站或长路径回收区；回收不可用时停止。只处理已扫描的文件，不移动文件夹。'
-              : '命中多条规则时，可按规则顺序（取第一条）或同盘优先。跨盘串行复制并校验 SHA-256，成功后原件进入 Windows 回收站或长路径回收区；回收不可用时停止。只处理已扫描的文件，不移动文件夹。'
+              : '命中多条规则时，可按规则顺序（取第一条）或同盘优先。“文件夹”规则会整目录同盘移动（内部文件跟随、索引同步），跨盘不支持；其它规则逐个移动已扫描文件。跨盘文件串行复制并校验 SHA-256，成功后原件进入 Windows 回收站或长路径回收区；回收不可用时停止。'
           }
         />
         {error ? <Alert type="error" showIcon message={error} /> : null}
@@ -324,7 +324,11 @@ export default function OrganizePage(): React.JSX.Element {
                 {sourceDirs.map((dir) => (
                   <Space.Compact key={dir} style={{ width: '100%' }}>
                     <Input readOnly aria-label="整理来源" value={dir} />
-                    <Button aria-label="移除来源" disabled={locked} onClick={() => removeSource(dir)}>
+                    <Button
+                      aria-label="移除来源"
+                      disabled={locked}
+                      onClick={() => removeSource(dir)}
+                    >
                       移除
                     </Button>
                   </Space.Compact>
@@ -400,7 +404,9 @@ export default function OrganizePage(): React.JSX.Element {
               任一满足”组合；留空的条件不参与匹配，全部留空时匹配全部文件。文件名格式用 X
               表示任意一个字符，其余字符按字面匹配，例如 XX-XXX（2 个字 + 横线 + 3
               个字）；匹配方式可选完整匹配（整段名字必须对上）或包含匹配（名字任意位置出现即可），
-              不区分大小写、全角半角和横线写法。命中多条规则时按上方“规则优先级”选择：按规则顺序取第一条，或同盘优先。所有规则指向同一个目标即可集中归档。“添加预设”可一键加入视频、图片、文档、音乐、压缩包、安装包规则，添加后只需选择目标文件夹。
+              不区分大小写、全角半角和横线写法。类型选“文件夹”时按文件夹名和路径匹配，整目录同盘移动，
+              扩展名、大小、时间不参与，跨盘不支持；文件夹内部已由父文件夹覆盖时只列最外层。
+              命中多条规则时按上方“规则优先级”选择：按规则顺序取第一条，或同盘优先。所有规则指向同一个目标即可集中归档。“添加预设”可一键加入视频、图片、文档、音乐、压缩包、安装包规则，添加后只需选择目标文件夹。
             </Typography.Paragraph>
             <Space align="center" wrap>
               <Typography.Text>命中多条规则时：</Typography.Text>
@@ -487,6 +493,7 @@ export default function OrganizePage(): React.JSX.Element {
                           style={{ width: 130 }}
                           options={[
                             { value: 'all', label: '全部类型' },
+                            { value: 'folder', label: '文件夹' },
                             ...FILE_TYPES.map((type) => ({ value: type.key, label: type.label })),
                           ]}
                           onChange={(type) => changeRule(rule.id, { type })}
@@ -495,7 +502,7 @@ export default function OrganizePage(): React.JSX.Element {
                           aria-label="扩展名条件"
                           placeholder="扩展名：txt,pdf（可留空）"
                           value={rule.extensions.join(',')}
-                          disabled={locked}
+                          disabled={locked || rule.type === 'folder'}
                           style={{ width: 230 }}
                           onChange={(event) =>
                             changeRule(rule.id, {
@@ -540,6 +547,12 @@ export default function OrganizePage(): React.JSX.Element {
                           X = 任意一个字符（含汉字）；全角半角、横线写法不区分
                         </Typography.Text>
                       </Space>
+                      {rule.type === 'folder' ? (
+                        <Typography.Text type="secondary">
+                          文件夹规则按文件夹名和路径匹配；整目录同盘移动，跨盘不支持。
+                          文件夹来自已扫描索引，空文件夹不会出现。
+                        </Typography.Text>
+                      ) : null}
                       <Space.Compact style={{ width: '100%' }}>
                         <Input
                           readOnly
@@ -568,7 +581,7 @@ export default function OrganizePage(): React.JSX.Element {
                           <InputNumber
                             aria-label="最小大小"
                             min={0}
-                            disabled={locked}
+                            disabled={locked || rule.type === 'folder'}
                             value={rule.minSize === null ? null : rule.minSize / MB}
                             placeholder="不限"
                             addonAfter="MB"
@@ -585,7 +598,7 @@ export default function OrganizePage(): React.JSX.Element {
                           <InputNumber
                             aria-label="最大大小"
                             min={0}
-                            disabled={locked}
+                            disabled={locked || rule.type === 'folder'}
                             value={rule.maxSize === null ? null : rule.maxSize / MB}
                             placeholder="不限"
                             addonAfter="MB"
@@ -599,7 +612,7 @@ export default function OrganizePage(): React.JSX.Element {
                         </Space>
                         <DatePicker.RangePicker
                           aria-label="修改时间起止"
-                          disabled={locked}
+                          disabled={locked || rule.type === 'folder'}
                           value={[
                             rule.mtimeFrom !== null ? dayjs(rule.mtimeFrom) : null,
                             rule.mtimeTo !== null ? dayjs(rule.mtimeTo) : null,
@@ -724,7 +737,7 @@ export default function OrganizePage(): React.JSX.Element {
                         <>
                           {item.rule}
                           <br />
-                          {formatBytes(item.size)}
+                          {item.kind === 'folder' ? '文件夹' : formatBytes(item.size)}
                         </>
                       ),
                     },
@@ -748,7 +761,7 @@ export default function OrganizePage(): React.JSX.Element {
               <Space wrap>
                 <Typography.Text>
                   已显示 {Math.min(visibleCount, preview.items.length)} / {preview.items.length}{' '}
-                  个， 已选择 {selected.length} 个文件，其中跨盘 {crossCount} 个
+                  个， 已选择 {selected.length} 个项目，其中跨盘 {crossCount} 个
                 </Typography.Text>
                 {hasMoreItems(visibleCount, preview.items.length) ? (
                   <Button size="small" onClick={loadMore}>
@@ -761,7 +774,7 @@ export default function OrganizePage(): React.JSX.Element {
                     setSelected(preview.items.filter((item) => item.allowed).map((item) => item.id))
                   }
                 >
-                  勾选全部可移动文件
+                  勾选全部可移动项目
                 </Button>
                 <Button
                   type="primary"
@@ -771,7 +784,7 @@ export default function OrganizePage(): React.JSX.Element {
                     setConfirmOpen(true);
                   }}
                 >
-                  移动所选文件
+                  移动所选项目
                 </Button>
               </Space>
             </>
@@ -840,7 +853,7 @@ export default function OrganizePage(): React.JSX.Element {
         ) : null}
       </Space>
       <Modal
-        title="确认移动文件"
+        title="确认移动项目"
         open={confirmOpen}
         closable={!pending}
         maskClosable={false}
@@ -864,7 +877,7 @@ export default function OrganizePage(): React.JSX.Element {
       >
         <Typography.Paragraph>
           将移动所选 {selected.length}{' '}
-          个文件。请确认预览中的目标位置；同名目标不会覆盖。已完成的移动不会因停止任务而撤销。
+          个项目（文件或文件夹）。请确认预览中的目标位置；同名目标不会覆盖。已完成的移动不会因停止任务而撤销。
         </Typography.Paragraph>
         {crossCount > 0 ? (
           <>

@@ -8,6 +8,55 @@ import {
   normalizePathKey,
 } from '../services/filesystem';
 
+export function updateOrganizedFolder(
+  db: DatabaseSync,
+  scanId: number,
+  source: string,
+  target: string,
+): number {
+  const sourceKey = normalizePathKey(source).replace(/\\+$/, '');
+  const targetPath = target.replace(/\\+$/, '');
+  const targetKey = normalizePathKey(targetPath);
+  const prefix = `${sourceKey}\\`;
+  const drive = getDriveLetter(targetPath);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const moved = db
+      .prepare(
+        `UPDATE files SET drive = ?, path = ? || substr(path, ?), path_key = ? || substr(path_key, ?),
+         dir_path = ? || substr(dir_path, ?), dir_key = ? || substr(dir_key, ?)
+         WHERE scan_id = ? AND substr(path_key, 1, ?) = ?`,
+      )
+      .run(
+        drive,
+        targetPath,
+        sourceKey.length + 1,
+        targetKey,
+        sourceKey.length + 1,
+        targetPath,
+        sourceKey.length + 1,
+        targetKey,
+        sourceKey.length + 1,
+        scanId,
+        prefix.length,
+        prefix,
+      );
+    const targetPrefix = `${targetKey}\\`;
+    db.prepare(
+      `UPDATE files SET root_dir = CASE
+         WHEN instr(substr(path, 4), char(92)) > 0
+         THEN substr(substr(path, 4), 1, instr(substr(path, 4), char(92)) - 1)
+         ELSE '' END
+       WHERE scan_id = ? AND substr(path_key, 1, ?) = ?`,
+    ).run(scanId, targetPrefix.length, targetPrefix);
+    db.exec('COMMIT');
+    return Number(moved.changes);
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
 export function updateOrganizedFile(
   db: DatabaseSync,
   scanId: number,
