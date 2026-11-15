@@ -11,6 +11,7 @@ import {
   scanStartSchema,
   settingsUpdateSchema,
 } from '../../src/main/ipc/schemas';
+import { renameInspectSchema, renamePickSchema } from '../../src/shared/rename';
 
 describe('IPC validation schemas', () => {
   it('normalizes scan drive letters', () => {
@@ -145,6 +146,21 @@ describe('IPC validation schemas', () => {
       }),
     ).toThrow();
     expect(() => duplicatesStartSchema.parse({ mode: 'full', extra: true })).toThrow();
+  });
+
+  it('validates rename picker kind and dropped paths', () => {
+    expect(renamePickSchema.parse({ kind: 'file' })).toEqual({ kind: 'file' });
+    expect(renamePickSchema.parse({ kind: 'folder' })).toEqual({ kind: 'folder' });
+    expect(() => renamePickSchema.parse({ kind: 'both' })).toThrow();
+    expect(() => renamePickSchema.parse({ kind: 'file', extra: true })).toThrow();
+    expect(renameInspectSchema.parse({ paths: ['C:\\a.txt'] }).paths).toEqual(['C:\\a.txt']);
+    expect(() => parseIpc(renameInspectSchema, { paths: [] }, '添加拖入项目')).toThrow(
+      /没有可添加的项目/,
+    );
+    expect(() => renameInspectSchema.parse({ paths: [''] })).toThrow();
+    expect(() =>
+      renameInspectSchema.parse({ paths: Array.from({ length: 20001 }, () => 'C:\\a.txt') }),
+    ).toThrow();
   });
 
   it('validates settings updates', () => {

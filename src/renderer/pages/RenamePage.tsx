@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
 import {
   Alert,
   Button,
@@ -20,6 +20,7 @@ import {
 } from 'antd';
 import {
   DeleteOutlined,
+  FileAddOutlined,
   FolderAddOutlined,
   PlusOutlined,
   ThunderboltOutlined,
@@ -34,6 +35,7 @@ import {
   RENAME_RULE_LIMIT,
   RENAME_RULE_NOTES,
   type RenameItemStatus,
+  type RenamePickKind,
   type RenamePreview,
   type RenameRule,
   type RenameRuleType,
@@ -42,6 +44,7 @@ import {
 } from '@shared/rename';
 import PageHeader from '../components/PageHeader';
 import { useBackClose } from '../lib/back';
+import { collectDroppedPaths, hasFileDrag } from '../lib/renameDrop';
 import { describeError, isScanActive, useAppStore } from '../store/useAppStore';
 
 const PREVIEW_DEBOUNCE_MS = 500;
@@ -77,12 +80,15 @@ export default function RenamePage(): React.JSX.Element {
   const [error, setError] = useState('');
   const [state, setState] = useState<RenameState | null>(null);
   const [undoInfo, setUndoInfo] = useState<RenameUndoInfo | null>(null);
-  const [picking, setPicking] = useState(false);
+  const [pickingKind, setPickingKind] = useState<RenamePickKind | null>(null);
+  const [dropping, setDropping] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [acting, setActing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [undoOpen, setUndoOpen] = useState(false);
   const previewSeq = useRef(0);
   const finalizedKey = useRef('');
+  const dragDepth = useRef(0);
 
   const running = state?.status === 'running' || state?.status === 'cancelling';
   const locked = running || scanning || deletePhase === 'running';
@@ -195,26 +201,90 @@ export default function RenamePage(): React.JSX.Element {
     setRules((current) => [...current, createRenameRule(type)]);
   }
 
-  async function pickItems(): Promise<void> {
-    setPicking(true);
+  async function pickItems(kind: RenamePickKind): Promise<void> {
+    setPickingKind(kind);
     try {
-      const picked = await window.api.pickRenameItems();
+      const picked = await window.api.pickRenameItems(kind);
       if (picked.length === 0) return;
-      const added = addRenameItems(picked);
-      if (added < picked.length) {
-        pushNotice(
-          'warning',
-          added > 0
-            ? `已添加 ${added} 个项目，达到 ${RENAME_ITEM_LIMIT} 个上限，其余未加入`
-            : `列表已满（最多 ${RENAME_ITEM_LIMIT} 个项目）`,
-        );
-      } else if (added === 0) {
-        pushNotice('info', '所选项目已全部在列表中');
-      }
+      appendItems(picked);
     } catch (cause) {
       pushNotice('error', `选择项目失败：${describeError(cause)}`);
     } finally {
-      setPicking(false);
+      setPickingKind(null);
+    }
+  }
+
+  function appendItems(items: Array<{ path: string; kind: 'file' | 'folder' }>): void {
+    if (items.length === 0) return;
+    const added = addRenameItems(items);
+    if (added === 0) {
+      pushNotice(
+        'info',
+        renameItems.length >= RENAME_ITEM_LIMIT
+          ? `列表已满（最多 ${RENAME_ITEM_LIMIT} 个项目）`
+          : '所选项目已全部在列表中',
+      );
+      return;
+    }
+    if (added < items.length) {
+      pushNotice(
+        'warning',
+        `已添加 ${added} 个项目，其余已在列表中或达到 ${RENAME_ITEM_LIMIT} 个上限`,
+      );
+    }
+  }
+
+  function dragHasFiles(event: DragEvent<HTMLDivElement>): boolean {
+    return hasFileDrag(Array.from(event.dataTransfer.types));
+  }
+
+  function handleDragEnter(event: DragEvent<HTMLDivElement>): void {
+    if (!dragHasFiles(event)) return;
+    event.preventDefault();
+    dragDepth.current += 1;
+    setDragging(true);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>): void {
+    if (!dragHasFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLDivElement>): void {
+    if (!dragHasFiles(event)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragging(false);
+  }
+
+  async function handleDrop(event: DragEvent<HTMLDivElement>): Promise<void> {
+    if (!dragHasFiles(event)) return;
+    event.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    if (locked) {
+      pushNotice('warning', '请等待当前扫描、删除或重命名任务结束后再添加项目');
+      return;
+    }
+    const paths = collectDroppedPaths(Array.from(event.dataTransfer.files), (file) =>
+      window.api.getPathForFile(file),
+    );
+    if (paths.length === 0) {
+      pushNotice('warning', '无法读取拖入项目的磁盘位置，请改用“添加文件”或“添加文件夹”');
+      return;
+    }
+    setDropping(true);
+    try {
+      const inspected = await window.api.inspectRenamePaths(paths);
+      if (inspected.length === 0) {
+        pushNotice('info', '拖入的项目已不存在，或不是普通文件/文件夹');
+        return;
+      }
+      appendItems(inspected);
+    } catch (cause) {
+      pushNotice('error', `添加拖入项目失败：${describeError(cause)}`);
+    } finally {
+      setDropping(false);
     }
   }
 
@@ -598,7 +668,13 @@ export default function RenamePage(): React.JSX.Element {
   const startDisabled = !preview || preview.readyCount === 0 || locked || acting;
 
   return (
-    <div className="rename-page">
+    <div
+      className={dragging ? 'rename-page rename-dragging' : 'rename-page'}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={(event) => void handleDrop(event)}
+    >
       <PageHeader
         title="批量重命名"
         subtitle="完整规则 · 顺序叠加 · 实时预览 · 不覆盖已有名称"
@@ -631,20 +707,34 @@ export default function RenamePage(): React.JSX.Element {
       {error ? <Alert type="error" showIcon message={error} /> : null}
 
       <Card
+        className="rename-items-card"
         title={`1. 要重命名的项目（${fileCount} 个文件、${folderCount} 个文件夹）`}
         extra={
           <Space wrap>
+            {dropping ? <Typography.Text type="secondary">正在识别拖入的项目…</Typography.Text> : null}
+            <Button
+              icon={<FileAddOutlined />}
+              loading={pickingKind === 'file'}
+              disabled={
+                locked || dropping || renameItems.length >= RENAME_ITEM_LIMIT
+              }
+              onClick={() => void pickItems('file')}
+            >
+              添加文件
+            </Button>
             <Button
               icon={<FolderAddOutlined />}
-              loading={picking}
-              disabled={locked || renameItems.length >= RENAME_ITEM_LIMIT}
-              onClick={() => void pickItems()}
+              loading={pickingKind === 'folder'}
+              disabled={
+                locked || dropping || renameItems.length >= RENAME_ITEM_LIMIT
+              }
+              onClick={() => void pickItems('folder')}
             >
-              添加文件或文件夹
+              添加文件夹
             </Button>
             <Button
               danger
-              disabled={locked || renameItems.length === 0}
+              disabled={locked || dropping || renameItems.length === 0}
               onClick={() => {
                 clearRenameItems();
                 setPreview(null);
@@ -656,9 +746,10 @@ export default function RenamePage(): React.JSX.Element {
         }
       >
         {renameItems.length === 0 ? (
-          <Empty description="还没有添加项目">
-            <Typography.Paragraph type="secondary" style={{ maxWidth: 560, margin: '0 auto 16px' }}>
-              可直接在这里选择文件或文件夹，也可以在“全部文件”或“重复文件”中勾选后点击“批量重命名”。
+          <Empty description={dragging ? '松开即可添加' : '还没有添加项目'}>
+            <Typography.Paragraph type="secondary" style={{ maxWidth: 600, margin: '0 auto 16px' }}>
+              可分别用“添加文件”多选文件、用“添加文件夹”添加文件夹，也可以直接把文件和文件夹从资源管理器
+              拖到本页。文件夹只修改文件夹名称，内部文件名称不变，只随文件夹更新路径索引。
               只支持本地固定硬盘上的普通文件和文件夹，项目按添加顺序编号；一次最多{' '}
               {RENAME_ITEM_LIMIT} 个。
             </Typography.Paragraph>
@@ -667,7 +758,7 @@ export default function RenamePage(): React.JSX.Element {
           <>
             <Typography.Paragraph type="secondary">
               共 {renameItems.length} 个项目，最多 {RENAME_ITEM_LIMIT} 个。文件与文件夹会按顺序应用同一组规则；
-              选择文件夹时，其内部项目会随文件夹一起改名，无需重复添加。
+              文件夹只修改文件夹名称，内部文件名称不变。也可以继续从资源管理器拖入文件和文件夹。
             </Typography.Paragraph>
             <Table
               size="small"
@@ -839,7 +930,8 @@ export default function RenamePage(): React.JSX.Element {
               <Tag color="gold">跳过 {preview.skippedCount}</Tag>
               <Tag color="red">有问题 {preview.blockedCount}</Tag>
               <Typography.Text type="secondary">
-                预览只读取信息，不会修改任何文件；开始后也会再次检查目标名称。
+                文件夹项只修改文件夹名称，内部文件名称不变。预览只读取信息，不会修改任何文件；
+                开始后也会再次检查目标名称。
               </Typography.Text>
             </Space>
             <Table

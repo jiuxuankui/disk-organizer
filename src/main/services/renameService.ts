@@ -8,6 +8,7 @@ import { localOrganizePath } from '@shared/organize';
 import {
   applyRenameRules,
   validateRenameName,
+  RENAME_ITEM_LIMIT,
   type RenameItem,
   type RenamePreview,
   type RenamePreviewItem,
@@ -124,6 +125,25 @@ export class RenameService {
   getUndoInfo(): RenameUndoInfo | null {
     const batch = getUndoBatch(this.deps.db);
     return batch ? { count: batch.count, createdAt: batch.createdAt } : null;
+  }
+
+  inspectPaths(paths: string[]): Array<{ path: string; kind: 'file' | 'folder' }> {
+    const seen = new Set<string>();
+    const items: Array<{ path: string; kind: 'file' | 'folder' }> = [];
+    for (const raw of paths) {
+      const key = normalizePathKey(raw).replace(/\\+$/, '');
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      try {
+        const stat = fs.lstatSync(toExtendedPath(raw));
+        if (stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory())) continue;
+        items.push({ path: raw, kind: stat.isDirectory() ? 'folder' : 'file' });
+        if (items.length >= RENAME_ITEM_LIMIT) break;
+      } catch {
+        // 拖入时已消失的项目不加入列表。
+      }
+    }
+    return items;
   }
 
   private ensureIdle(label: string): void {

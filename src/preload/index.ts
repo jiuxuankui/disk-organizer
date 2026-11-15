@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { IPC } from '@shared/ipcChannels';
 import type { DiskOrganizerApi, DuplicateStartInput, StartScanInput } from '@shared/api';
 import type { AppSettings, DeleteEvent, DuplicateQuery, FileQuery, ScanEvent } from '@shared/types';
@@ -35,7 +35,9 @@ const api: DiskOrganizerApi = {
   getFile: (id: number) => ipcRenderer.invoke(IPC.filesGet, { id }),
   getFiles: (fileIds: number[]) => ipcRenderer.invoke(IPC.filesGetMany, { fileIds }),
   syncIndex: () => ipcRenderer.invoke(IPC.filesSyncIndex),
-  pickRenameItems: () => ipcRenderer.invoke(IPC.renamePickItems),
+  pickRenameItems: (kind) => ipcRenderer.invoke(IPC.renamePickItems, { kind }),
+  inspectRenamePaths: (paths) => ipcRenderer.invoke(IPC.renameInspectPaths, { paths }),
+  getPathForFile: (file) => webUtils.getPathForFile(file as File),
   previewRename: (input) => ipcRenderer.invoke(IPC.renamePreview, input),
   startRename: (input) => ipcRenderer.invoke(IPC.renameStart, input),
   getRenameState: () => ipcRenderer.invoke(IPC.renameState),

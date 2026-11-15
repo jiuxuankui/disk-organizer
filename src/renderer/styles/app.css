@@ -1537,3 +1537,8 @@ html[data-theme='vibrant'] .ant-menu-item-selected {
   flex-direction: column;
   gap: 4px;
 }
+
+.rename-page.rename-dragging .rename-items-card {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}

@@ -53,6 +53,7 @@ export const IPC = {
   filesGetMany: 'files:get-many',
 
   renamePickItems: 'rename:pick-items',
+  renameInspectPaths: 'rename:inspect-paths',
   renamePreview: 'rename:preview',
   renameStart: 'rename:start',
   renameState: 'rename:state',

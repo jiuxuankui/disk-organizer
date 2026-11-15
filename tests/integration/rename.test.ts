@@ -203,6 +203,7 @@ describe('批量重命名服务', () => {
     expect(getFileById(fx.db, fx.scanId, child.id)?.path).toBe(
       path.join(fx.root, 'R-nested', 'child.txt'),
     );
+    expect(getFileById(fx.db, fx.scanId, child.id)?.name).toBe('child.txt');
     const run = fx.db
       .prepare('SELECT status FROM duplicate_runs WHERE scan_id = ?')
       .get(fx.scanId) as { status: string };
@@ -256,6 +257,27 @@ describe('批量重命名服务', () => {
 
     expect(fx.service.getState().results[0].status).toBe('failed');
     expect(fx.service.getUndoInfo()).toEqual(expect.objectContaining({ count: 1 }));
+  });
+
+  it('识别拖入的文件和文件夹，去重并跳过链接和已消失项目', () => {
+    const fx = setup();
+    const file = fx.addFile('drag.txt');
+    const folder = fx.addFolder('drag-folder');
+    const link = path.join(fx.root, 'drag-link');
+    fs.symlinkSync(folder, link, 'junction');
+
+    const result = fx.service.inspectPaths([
+      file.file,
+      folder,
+      file.file.toUpperCase(),
+      path.join(fx.root, 'missing.txt'),
+      link,
+    ]);
+
+    expect(result).toEqual([
+      { path: file.file, kind: 'file' },
+      { path: folder, kind: 'folder' },
+    ]);
   });
 
   it('忙碌时拒绝预览，取消后停止并保留已完成项目', async () => {

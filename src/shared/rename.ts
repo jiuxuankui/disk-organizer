@@ -128,11 +128,24 @@ export const renamePreviewSchema = z
 
 export const renameStartSchema = z.object({ token: z.string().uuid() }).strict();
 
+export const renamePickSchema = z.object({ kind: z.enum(['file', 'folder']) }).strict();
+
+export const renameInspectSchema = z
+  .object({
+    paths: z
+      .array(z.string().min(1).max(32767))
+      .min(1, '没有可添加的项目')
+      .max(RENAME_ITEM_LIMIT, `一次最多添加 ${RENAME_ITEM_LIMIT} 个项目`),
+  })
+  .strict();
+
 export type RenameRule = z.infer<typeof renameRuleSchema>;
 export type RenameRuleType = RenameRule['type'];
 export type RenameItem = z.infer<typeof renameItemSchema>;
 export type RenamePreviewRequest = z.infer<typeof renamePreviewSchema>;
 export type RenameStartRequest = z.infer<typeof renameStartSchema>;
+export type RenamePickKind = z.infer<typeof renamePickSchema>['kind'];
+export type RenameInspectRequest = z.infer<typeof renameInspectSchema>;
 
 export const RENAME_RULE_LABELS: Record<RenameRuleType, string> = {
   findReplace: '查找替换',

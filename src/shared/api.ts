@@ -28,6 +28,7 @@ import type {
 import type { VideoRequest, VideoState } from './video';
 import type { ArchiveRequest, ArchiveState } from './archive';
 import type {
+  RenamePickKind,
   RenamePreview,
   RenamePreviewRequest,
   RenameStartRequest,
@@ -99,7 +100,9 @@ export interface DiskOrganizerApi {
   getFile(id: number): Promise<FileRecord | null>;
   getFiles(fileIds: number[]): Promise<FileRecord[]>;
   syncIndex(): Promise<IndexSyncResult>;
-  pickRenameItems(): Promise<RenamePickItem[]>;
+  pickRenameItems(kind: RenamePickKind): Promise<RenamePickItem[]>;
+  inspectRenamePaths(paths: string[]): Promise<RenamePickItem[]>;
+  getPathForFile(file: unknown): string;
   previewRename(input: RenamePreviewRequest): Promise<RenamePreview>;
   startRename(input: RenameStartRequest): Promise<RenameState>;
   getRenameState(): Promise<RenameState>;

@@ -259,6 +259,41 @@ test('重复文件页支持范围与模式选择，完整比对后显示重复�
 });
 
 test('从全部文件进入批量重命名，预览执行后可整批撤销', async () => {
+  await navTo('批量重命名');
+  await app.evaluate(({ dialog }, filePath) => {
+    dialog.showOpenDialog = (async () => ({
+      canceled: false,
+      filePaths: [filePath],
+      bookmarks: [],
+    })) as typeof dialog.showOpenDialog;
+  }, path.join(fixtureRoot, 'keep.txt'));
+  await page
+    .locator('.rename-items-card')
+    .getByRole('button', { name: 'file-add 添加文件', exact: true })
+    .click();
+  await expect(
+    page.locator('.rename-items-card .ant-table-row', { hasText: 'keep.txt' }),
+  ).toHaveCount(1);
+
+  await app.evaluate(({ dialog }, folderPath) => {
+    dialog.showOpenDialog = (async () => ({
+      canceled: false,
+      filePaths: [folderPath],
+      bookmarks: [],
+    })) as typeof dialog.showOpenDialog;
+  }, path.join(fixtureRoot, 'photos'));
+  await page
+    .locator('.rename-items-card')
+    .getByRole('button', { name: 'folder-add 添加文件夹', exact: true })
+    .click();
+  await expect(
+    page.locator('.rename-items-card .ant-table-row', { hasText: 'photos' }),
+  ).toHaveCount(1);
+  await expect(page.locator('.rename-items-card')).toContainText('1 个文件、1 个文件夹');
+
+  await page.getByRole('button', { name: '清空列表', exact: true }).click();
+  await expect(page.locator('.rename-items-card')).toContainText('还没有添加项目');
+
   await navTo('全部文件');
   await page.locator('.files-search input').fill('keep.txt');
   const row = page.locator('.files-panel .ant-table-row', { hasText: 'keep.txt' });

@@ -1,10 +1,11 @@
 import { dialog, ipcMain } from 'electron';
-import fs from 'node:fs';
 import { IPC } from '@shared/ipcChannels';
 import {
+  renameInspectSchema,
+  renamePickSchema,
   renamePreviewSchema,
   renameStartSchema,
-  RENAME_ITEM_LIMIT,
+  type RenamePickKind,
   type RenamePreview,
   type RenameState,
   type RenameUndoInfo,
@@ -22,24 +23,27 @@ function ensureIdle(ctx: IpcContext): void {
   if (ctx.deleteService.isRunning()) throw new Error('删除进行中，请等待完成或先停止');
 }
 
+function dialogTitle(kind: RenamePickKind): string {
+  return kind === 'folder' ? '选择要重命名的文件夹' : '选择要重命名的文件';
+}
+
 export function registerRenameIpc(ctx: IpcContext): void {
-  ipcMain.handle(IPC.renamePickItems, async () => {
+  ipcMain.handle(IPC.renamePickItems, async (_event, raw: unknown) => {
+    const { kind } = parseIpc(renamePickSchema, raw, '选择重命名项目');
     const result = await dialog.showOpenDialog({
-      title: '选择要批量重命名的文件或文件夹',
-      properties: ['openFile', 'openDirectory', 'multiSelections'],
+      title: dialogTitle(kind),
+      properties:
+        kind === 'folder'
+          ? ['openDirectory', 'multiSelections']
+          : ['openFile', 'multiSelections'],
     });
     if (result.canceled) return [];
-    const items: Array<{ path: string; kind: 'file' | 'folder' }> = [];
-    for (const filePath of result.filePaths.slice(0, RENAME_ITEM_LIMIT)) {
-      try {
-        const stat = fs.lstatSync(filePath);
-        if (stat.isSymbolicLink()) continue;
-        items.push({ path: filePath, kind: stat.isDirectory() ? 'folder' : 'file' });
-      } catch {
-        // 已消失的项目不加入列表。
-      }
-    }
-    return items;
+    return ctx.rename.inspectPaths(result.filePaths).filter((item) => item.kind === kind);
+  });
+
+  ipcMain.handle(IPC.renameInspectPaths, (_event, raw: unknown) => {
+    const { paths } = parseIpc(renameInspectSchema, raw, '添加拖入项目');
+    return ctx.rename.inspectPaths(paths);
   });
 
   ipcMain.handle(IPC.renamePreview, (_event, raw: unknown): Promise<RenamePreview> => {
