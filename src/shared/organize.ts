@@ -241,10 +241,47 @@ export interface OrganizeResult {
   status: 'moved' | 'failed' | 'cancelled';
   message: string;
 }
+export interface OrganizeCleanupReport {
+  cleaned: number;
+  failed: Array<{ path: string; reason: string }>;
+}
 export interface OrganizeState {
   status: 'idle' | 'running' | 'cancelling' | 'completed' | 'cancelled';
   total: number;
   processed: number;
   currentPath: string;
   results: OrganizeResult[];
+  cleanup: OrganizeCleanupReport | null;
+}
+
+export const MOVE_FOLDER_LIMIT = 10000;
+export const movePreviewSchema = z
+  .object({
+    fileIds: z.array(z.number().int().positive()).max(ORGANIZE_MATCH_LIMIT).default([]),
+    folderPaths: z.array(localOrganizePath).max(MOVE_FOLDER_LIMIT).default([]),
+    targetDir: localOrganizePath,
+  })
+  .strict()
+  .refine(
+    (value) => value.fileIds.length + value.folderPaths.length > 0,
+    '请选择要移动的文件或文件夹',
+  );
+export const moveStartSchema = z
+  .object({
+    token: z.string().uuid(),
+    confirmCrossDrive: z.boolean(),
+  })
+  .strict();
+export type MovePreviewRequest = z.infer<typeof movePreviewSchema>;
+export type MoveStartRequest = z.infer<typeof moveStartSchema>;
+export interface MovePreview {
+  token: string;
+  items: OrganizeItem[];
+  movableCount: number;
+  blockedCount: number;
+  crossDriveCount: number;
+  fileCount: number;
+  folderCount: number;
+  totalBytes: number;
+  targetDir: string;
 }

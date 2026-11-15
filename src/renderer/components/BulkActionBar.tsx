@@ -1,5 +1,5 @@
 import { Button, Space, Tag, Tooltip } from 'antd';
-import { DeleteOutlined } from '@ant-design/icons';
+import { DeleteOutlined, FolderOutlined } from '@ant-design/icons';
 import { COPY } from '@shared/copy';
 import { formatBytes, formatCount } from '@shared/format';
 
@@ -15,9 +15,12 @@ export interface BulkActionBarProps {
   showCompress?: boolean;
   deleteDisabled?: boolean;
   deleteHint?: string;
+  moveDisabled?: boolean;
+  moveHint?: string;
   onSelectAll(): void;
   onClear(): void;
   onDelete(): void;
+  onMove?(): void;
   onVideo?(): void;
   onArchive?(): void;
   compressDisabled?: boolean;
@@ -35,9 +38,12 @@ export default function BulkActionBar({
   showCompress = true,
   deleteDisabled = false,
   deleteHint,
+  moveDisabled = false,
+  moveHint,
   onSelectAll,
   onClear,
   onDelete,
+  onMove,
   onVideo,
   onArchive,
   compressDisabled = false,
@@ -78,6 +84,15 @@ export default function BulkActionBar({
               压缩打包
             </Button>
           </>
+        ) : null}
+        {onMove ? (
+          <Tooltip title={moveDisabled ? moveHint : '移动到其他文件夹'}>
+            <span>
+              <Button icon={<FolderOutlined />} disabled={moveDisabled} onClick={onMove}>
+                移动到文件夹
+              </Button>
+            </span>
+          </Tooltip>
         ) : null}
         <Tooltip title={deleteDisabled ? deleteHint : undefined}>
           <span>

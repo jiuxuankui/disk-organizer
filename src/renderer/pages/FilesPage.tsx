@@ -10,7 +10,9 @@ import FileTable from '../components/FileTable';
 import FolderTable from '../components/FolderTable';
 import BulkActionBar from '../components/BulkActionBar';
 import ArchiveModal from '../components/ArchiveModal';
+import MoveModal, { type MoveSelection } from '../components/MoveModal';
 import { VIDEO_EXTENSIONS } from '@shared/video';
+import { ORGANIZE_MATCH_LIMIT } from '@shared/organize';
 import {
   buildFileQuery,
   DEFAULT_FILE_SORT,
@@ -73,6 +75,7 @@ export default function FilesPage(): React.JSX.Element {
   const [loadingMore, setLoadingMore] = useState(false);
   const [selection, setSelection] = useState<FilesSelection>(clearSelection());
   const [archiveIds, setArchiveIds] = useState<number[] | null>(null);
+  const [moveSelection, setMoveSelection] = useState<MoveSelection | null>(null);
   const [preparing, setPreparing] = useState(false);
   const requestRef = useRef(0);
   const loadingRef = useRef(false);
@@ -380,6 +383,40 @@ export default function FilesPage(): React.JSX.Element {
     }
   };
 
+  const handleMove = async (): Promise<void> => {
+    if (scanning || deletePhase === 'running') return;
+    try {
+      if (filters.view === 'folders') {
+        const fileIds = [...folderSelection.files.keys()];
+        const folderPaths = [...folderSelection.folders.keys()];
+        if (fileIds.length === 0 && folderPaths.length === 0) return;
+        setMoveSelection({ fileIds, folderPaths });
+        return;
+      }
+      const ids =
+        selection.mode === 'all'
+          ? await window.api.listFileIds({ ...baseQuery, page: 1, pageSize: 1000 })
+          : selection.keys;
+      if (ids.length === 0) {
+        pushNotice('info', '当前没有可移动的文件');
+        return;
+      }
+      if (ids.length > ORGANIZE_MATCH_LIMIT) {
+        pushNotice('warning', `一次最多移动 ${ORGANIZE_MATCH_LIMIT} 个文件，请先收窄筛选条件`);
+        return;
+      }
+      setMoveSelection({ fileIds: ids, folderPaths: [] });
+    } catch (error) {
+      pushNotice('error', `读取待移动文件失败：${describeError(error)}`);
+    }
+  };
+
+  const handleMoved = useCallback((): void => {
+    useAppStore.setState((store) => ({ dataVersion: store.dataVersion + 1 }));
+    void useAppStore.getState().refreshOverview(true);
+    void useAppStore.getState().refreshDrives();
+  }, []);
+
   if (!overview?.scan) {
     return (
       <div className="files-page">
@@ -484,6 +521,9 @@ export default function FilesPage(): React.JSX.Element {
           onSelectAll={() => setSelection(selectAllFiltered(items.map((item) => item.id)))}
           onClear={() => setSelection(clearSelection())}
           onDelete={() => void handleDelete()}
+          onMove={() => void handleMove()}
+          moveDisabled={scanning || deletePhase === 'running'}
+          moveHint={scanning ? '扫描完成后可移动文件' : '删除进行中，请等待完成'}
           onVideo={() => void handleCompress('video')}
           onArchive={() => void handleCompress('archive')}
           compressDisabled={scanning || preparing}
@@ -506,6 +546,9 @@ export default function FilesPage(): React.JSX.Element {
           deleteHint={folderDeleteHint}
           onSelectAll={() => undefined}
           onClear={clearFolderSelection}
+          onMove={() => void handleMove()}
+          moveDisabled={folderDeleteDisabled}
+          moveHint={folderDeleteHint}
           onDelete={() =>
             void requestDelete(
               [...folderSelection.files.keys()],
@@ -516,6 +559,13 @@ export default function FilesPage(): React.JSX.Element {
       ) : null}
       {archiveIds ? (
         <ArchiveModal fileIds={archiveIds} onClose={() => setArchiveIds(null)} />
+      ) : null}
+      {moveSelection ? (
+        <MoveModal
+          selection={moveSelection}
+          onClose={() => setMoveSelection(null)}
+          onMoved={handleMoved}
+        />
       ) : null}
     </div>
   );

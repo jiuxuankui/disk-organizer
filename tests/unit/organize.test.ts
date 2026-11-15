@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { FileRecord } from '@shared/types';
 import {
+  movePreviewSchema,
+  moveStartSchema,
   organizePreviewSchema,
   organizeRuleSchema,
   organizeRulesSchema,
@@ -77,6 +79,40 @@ describe('organize rules and IPC boundary', () => {
       true,
     );
     expect(organizeStartSchema.safeParse({ ...input, target: 'D:\\unsafe' }).success).toBe(false);
+  });
+  it('validates manual move selections at the IPC boundary', () => {
+    const input = {
+      fileIds: [1, 2],
+      folderPaths: ['C:\\相册'],
+      targetDir: 'D:\\归档',
+    };
+    expect(movePreviewSchema.parse(input)).toEqual(input);
+    expect(movePreviewSchema.parse({ fileIds: [7], targetDir: 'D:\\归档' })).toEqual({
+      fileIds: [7],
+      folderPaths: [],
+      targetDir: 'D:\\归档',
+    });
+    expect(movePreviewSchema.safeParse({ targetDir: 'D:\\归档' }).success).toBe(false);
+    for (const patch of [
+      { fileIds: [], folderPaths: [] },
+      { fileIds: [0] },
+      { fileIds: [-1] },
+      { fileIds: [1.5] },
+      { fileIds: Array(50001).fill(1) },
+      { folderPaths: Array(10001).fill('C:\\相册') },
+      { targetDir: 'relative' },
+      { targetDir: '\\\\server\\share' },
+    ]) {
+      expect(movePreviewSchema.safeParse({ ...input, ...patch }).success).toBe(false);
+    }
+    expect(movePreviewSchema.safeParse({ ...input, target: 'D:\\unsafe' }).success).toBe(false);
+
+    const start = { token: rule.id, confirmCrossDrive: false };
+    expect(moveStartSchema.parse(start)).toEqual(start);
+    expect(moveStartSchema.safeParse({ token: rule.id }).success).toBe(false);
+    expect(moveStartSchema.safeParse({ token: 'bad', confirmCrossDrive: false }).success).toBe(
+      false,
+    );
   });
   it('combines conditions, prefers same-drive rules and preserves order within that drive', () => {
     const local = { ...rule, name: '同盘', targetDir: 'C:\\归类' };

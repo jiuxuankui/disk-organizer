@@ -824,6 +824,33 @@ export default function OrganizePage(): React.JSX.Element {
             <Typography.Paragraph style={{ overflowWrap: 'anywhere' }}>
               {state.currentPath}
             </Typography.Paragraph>
+            {state.cleanup && state.cleanup.cleaned > 0 ? (
+              <Alert
+                type="success"
+                showIcon
+                message={`已自动清理 ${state.cleanup.cleaned} 个因移动变空的来源文件夹（已放入回收站，可还原）`}
+              />
+            ) : null}
+            {state.cleanup && state.cleanup.failed.length > 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                message={`有 ${state.cleanup.failed.length} 个空文件夹未能自动清理`}
+                description={
+                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                    {state.cleanup.failed.map((item) => (
+                      <Typography.Text
+                        key={`${item.path}:${item.reason}`}
+                        style={{ overflowWrap: 'anywhere' }}
+                      >
+                        {item.path ? `${item.path}：` : ''}
+                        {item.reason}
+                      </Typography.Text>
+                    ))}
+                  </Space>
+                }
+              />
+            ) : null}
             <List
               dataSource={state.results}
               pagination={{ pageSize: 20 }}

@@ -70,7 +70,11 @@ function setup() {
     protectedPaths: [] as string[],
     getRecyclePolicy: () => policy,
     trashItem: async (file: string) => {
-      moveFileNoReplace(file, path.join(trash, path.basename(file)));
+      let destination = path.join(trash, path.basename(file));
+      for (let suffix = 1; fs.existsSync(destination); suffix += 1) {
+        destination = path.join(trash, `${path.basename(file)} (${suffix})`);
+      }
+      moveFileNoReplace(file, destination);
     },
     longTrash: {
       needsQuarantine: () => false,
@@ -517,6 +521,183 @@ describe('organize preview source limits', () => {
       [movie.id, pic.id].sort((a, b) => a - b),
     );
     expect(preview.items.every((item) => item.allowed)).toBe(true);
+  });
+});
+
+describe('manual move and empty folder cleanup', () => {
+  it('moves selected files and folders to the target and recycles emptied source folders', async () => {
+    const s = setup();
+    const loose = s.insert('loose.txt', 'loose');
+    const album = s.insert(path.join('album', 'a.txt'), 'album payload');
+    const preview = await s.job.planMove({
+      fileIds: [loose.id],
+      folderPaths: [path.join(s.sourceDir, 'album')],
+      targetDir: s.output,
+    });
+    expect(preview).toMatchObject({
+      movableCount: 2,
+      blockedCount: 0,
+      fileCount: 1,
+      folderCount: 1,
+    });
+    expect(preview.items.find((item) => item.kind === 'folder')?.rule).toBe('手动移动');
+    s.job.startMove({ token: preview.token, confirmCrossDrive: false });
+    await s.job.whenIdle();
+    const state = s.job.getState();
+    expect(state.status).toBe('completed');
+    expect(state.results.map((item) => item.status)).toEqual(['moved', 'moved']);
+    expect(fs.readFileSync(path.join(s.output, 'loose.txt'), 'utf8')).toBe('loose');
+    expect(fs.readFileSync(path.join(s.output, 'album', 'a.txt'), 'utf8')).toBe('album payload');
+    expect(fs.existsSync(s.sourceDir)).toBe(false);
+    expect(fs.existsSync(path.join(s.trash, 'source'))).toBe(true);
+    expect(state.cleanup).toMatchObject({ cleaned: 1, failed: [] });
+    expect(getFileById(s.db, s.scanId, loose.id)?.path).toBe(path.join(s.output, 'loose.txt'));
+    expect(getFileById(s.db, s.scanId, album.id)?.path).toBe(
+      path.join(s.output, 'album', 'a.txt'),
+    );
+  });
+
+  it('cleans the emptied parent chain upward but keeps unrelated empty folders', async () => {
+    const s = setup();
+    const keep = s.insert('keep.txt', 'keep');
+    const a = s.insert(path.join('nest', 'a', 'x.txt'), 'x');
+    const b = s.insert(path.join('nest', 'b', 'y.txt'), 'y');
+    fs.mkdirSync(path.join(s.sourceDir, 'already-empty'));
+    const preview = await s.job.planMove({
+      fileIds: [a.id, b.id],
+      folderPaths: [],
+      targetDir: s.output,
+    });
+    expect(preview.items.every((item) => item.allowed)).toBe(true);
+    s.job.startMove({ token: preview.token, confirmCrossDrive: false });
+    await s.job.whenIdle();
+    const state = s.job.getState();
+    expect(state.cleanup?.cleaned).toBe(3);
+    expect(fs.existsSync(path.join(s.sourceDir, 'nest'))).toBe(false);
+    expect(fs.existsSync(path.join(s.trash, 'nest'))).toBe(true);
+    expect(fs.existsSync(path.join(s.sourceDir, 'already-empty'))).toBe(true);
+    expect(fs.existsSync(keep.file)).toBe(true);
+  });
+
+  it('keeps a folder that still has content or cannot be recycled, and reports the failure', async () => {
+    const s = setup();
+    const kept = s.insert(path.join('shared', 'kept.txt'), 'kept');
+    const moved = s.insert(path.join('shared', 'moved.txt'), 'moved');
+    const solo = s.insert(path.join('solo', 'solo.txt'), 'solo');
+    s.deps.trashItem = async (target) => {
+      if (fs.statSync(target).isDirectory()) throw new Error('recycle folder failed');
+      moveFileNoReplace(target, path.join(s.trash, path.basename(target)));
+    };
+    const preview = await s.job.planMove({
+      fileIds: [moved.id, solo.id],
+      folderPaths: [],
+      targetDir: s.output,
+    });
+    s.job.startMove({ token: preview.token, confirmCrossDrive: false });
+    await s.job.whenIdle();
+    const state = s.job.getState();
+    expect(state.results.map((item) => item.status)).toEqual(['moved', 'moved']);
+    expect(fs.existsSync(path.join(s.sourceDir, 'shared'))).toBe(true);
+    expect(fs.readdirSync(path.join(s.sourceDir, 'shared'))).toEqual(['kept.txt']);
+    expect(fs.existsSync(kept.file)).toBe(true);
+    expect(state.cleanup).toMatchObject({ cleaned: 0 });
+    expect(state.cleanup?.failed).toEqual([
+      {
+        path: path.join(s.sourceDir, 'solo'),
+        reason: expect.stringContaining('放入回收站失败'),
+      },
+    ]);
+    expect(fs.readdirSync(path.join(s.sourceDir, 'solo'))).toEqual([]);
+  });
+
+  it('drops files covered by selected folders and blocks targets inside the selection', async () => {
+    const s = setup();
+    const inner = s.insert(path.join('album', 'inner.txt'), 'inner');
+    s.insert(path.join('album', 'sub', 'deep.txt'), 'deep');
+    const albumPath = path.join(s.sourceDir, 'album');
+    const preview = await s.job.planMove({
+      fileIds: [inner.id],
+      folderPaths: [albumPath, path.join(albumPath, 'sub')],
+      targetDir: s.output,
+    });
+    expect(preview.items).toHaveLength(1);
+    expect(preview.items[0]).toMatchObject({ kind: 'folder', source: albumPath, allowed: true });
+
+    const inside = path.join(albumPath, 'dest');
+    fs.mkdirSync(inside);
+    const blocked = await s.job.planMove({
+      fileIds: [],
+      folderPaths: [albumPath],
+      targetDir: inside,
+    });
+    expect(blocked.items[0].allowed).toBe(false);
+    expect(blocked.items[0].message).toBe('目标文件夹不能位于来源文件夹内部');
+
+    const same = await s.job.planMove({
+      fileIds: [inner.id],
+      folderPaths: [],
+      targetDir: albumPath,
+    });
+    expect(same.items[0].allowed).toBe(false);
+    expect(same.items[0].message).toBe('已在目标文件夹，无需移动');
+  });
+
+  it('requires confirmation for cross-drive files and rejects cross-drive folders', async () => {
+    const s = setup();
+    const file = s.insert('cross.txt', randomBytes(64));
+    s.insert(path.join('album', 'a.txt'), 'a');
+    const preview = await s.job.planMove({
+      fileIds: [file.id],
+      folderPaths: [path.join(s.sourceDir, 'album')],
+      targetDir: s.cross,
+    });
+    const fileItem = preview.items.find((item) => item.kind === 'file');
+    const folderItem = preview.items.find((item) => item.kind === 'folder');
+    expect(fileItem).toMatchObject({ allowed: true, crossDrive: true });
+    expect(folderItem).toMatchObject({ allowed: false, crossDrive: true });
+    expect(folderItem?.message).toContain('文件夹不支持跨盘移动');
+    expect(() =>
+      s.job.startMove({ token: preview.token, confirmCrossDrive: false }),
+    ).toThrow('必须明确确认');
+    s.job.startMove({ token: preview.token, confirmCrossDrive: true });
+    await s.job.whenIdle();
+    const state = s.job.getState();
+    expect(state.results.map((item) => item.status)).toEqual(['moved']);
+    expect(fs.existsSync(path.join(s.cross, 'cross.txt'))).toBe(true);
+    expect(fs.existsSync(file.file)).toBe(false);
+    expect(fs.existsSync(path.join(s.sourceDir, 'album', 'a.txt'))).toBe(true);
+    expect(state.cleanup).toMatchObject({ cleaned: 0, failed: [] });
+  });
+});
+
+describe('organize cleanup of emptied source folders', () => {
+  it('recycles folders emptied by custom rule moves', async () => {
+    const s = setup();
+    const keep = s.insert('keep.txt', 'keep');
+    const movie = s.insert(path.join('bucket', 'movie.mp4'), 'video');
+    const preview = await s.job.plan({
+      sourceDirs: [s.sourceDir],
+      rules: [{ ...makeRule(s.output), type: 'video' }],
+      priority: 'order',
+    });
+    s.job.start({ token: preview.token, fileIds: [movie.id], confirmCrossDrive: false });
+    await s.job.whenIdle();
+    expect(s.job.getState().cleanup?.cleaned).toBe(1);
+    expect(fs.existsSync(path.join(s.sourceDir, 'bucket'))).toBe(false);
+    expect(fs.existsSync(path.join(s.trash, 'bucket'))).toBe(true);
+    expect(fs.existsSync(keep.file)).toBe(true);
+  });
+
+  it('recycles folders emptied by smart organize moves', async () => {
+    const s = setup();
+    s.insert('keep.txt', 'keep');
+    const movie = s.insert(path.join('media', 'movie.mp4'), 'video');
+    const preview = await s.planSmart(s.output, ['video']);
+    s.job.start({ token: preview.token, fileIds: [movie.id], confirmCrossDrive: false });
+    await s.job.whenIdle();
+    expect(s.job.getState().cleanup?.cleaned).toBe(1);
+    expect(fs.existsSync(path.join(s.sourceDir, 'media'))).toBe(false);
+    expect(fs.existsSync(path.join(s.trash, 'media'))).toBe(true);
   });
 });
 

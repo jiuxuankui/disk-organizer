@@ -24,6 +24,9 @@ import type {
 import type { VideoRequest, VideoState } from './video';
 import type { ArchiveRequest, ArchiveState } from './archive';
 import type {
+  MovePreview,
+  MovePreviewRequest,
+  MoveStartRequest,
   OrganizePreview,
   OrganizePreviewRequest,
   OrganizeStartRequest,
@@ -49,6 +52,11 @@ export interface DiskOrganizerApi {
   startOrganize(input: OrganizeStartRequest): Promise<OrganizeState>;
   getOrganizeState(): Promise<OrganizeState>;
   cancelOrganize(): Promise<OrganizeState>;
+  selectMoveDirectory(): Promise<string | null>;
+  previewMove(input: MovePreviewRequest): Promise<MovePreview>;
+  startMove(input: MoveStartRequest): Promise<OrganizeState>;
+  getMoveState(): Promise<OrganizeState>;
+  cancelMove(): Promise<OrganizeState>;
   selectArchiveOutputDir(): Promise<string | null>;
   startArchive(input: ArchiveRequest): Promise<ArchiveState>;
   getArchiveState(): Promise<ArchiveState>;
