@@ -6,6 +6,7 @@ import overviewIndexSql from './migrations/002_overview_index.sql?raw';
 import duplicateRunDrivesSql from './migrations/003_duplicate_run_drives.sql?raw';
 import duplicateRunModeSql from './migrations/004_duplicate_run_mode.sql?raw';
 import scanStagingMetadataSql from './migrations/005_scan_staging_metadata.sql?raw';
+import renameUndoSql from './migrations/006_rename_undo.sql?raw';
 
 export interface Migration {
   version: number;
@@ -18,6 +19,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 3, sql: duplicateRunDrivesSql },
   { version: 4, sql: duplicateRunModeSql },
   { version: 5, sql: scanStagingMetadataSql },
+  { version: 6, sql: renameUndoSql },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

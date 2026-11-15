@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { App as AntApp, Button, Layout, Menu, Progress, Typography } from 'antd';
 import {
   CopyOutlined,
+  EditOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
   HomeOutlined,
@@ -15,6 +16,7 @@ import { isScanActive, useAppStore, type PageKey } from '../store/useAppStore';
 import { closeTopOverlay } from '../lib/back';
 import OverviewPage from '../pages/OverviewPage';
 import FilesPage from '../pages/FilesPage';
+import RenamePage from '../pages/RenamePage';
 import DuplicatesPage from '../pages/DuplicatesPage';
 import SettingsPage from '../pages/SettingsPage';
 import VideoPage from '../pages/VideoPage';
@@ -27,6 +29,7 @@ import DeleteFlow from './DeleteFlow';
 const NAV_ITEMS = [
   { key: 'overview', icon: <HomeOutlined />, label: COPY.navOverview },
   { key: 'files', icon: <FileTextOutlined />, label: COPY.navFiles },
+  { key: 'rename', icon: <EditOutlined />, label: COPY.navRename },
   { key: 'duplicates', icon: <CopyOutlined />, label: COPY.navDuplicates },
   { key: 'video', icon: <VideoCameraOutlined />, label: '视频压缩' },
   { key: 'organize', icon: <FolderOpenOutlined />, label: '归类整理' },
@@ -100,6 +103,8 @@ function PageContent({ page }: { page: PageKey }): React.JSX.Element {
   switch (page) {
     case 'files':
       return <FilesPage />;
+    case 'rename':
+      return <RenamePage />;
     case 'duplicates':
       return <DuplicatesPage />;
     case 'settings':

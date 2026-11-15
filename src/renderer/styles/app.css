@@ -198,7 +198,7 @@
 .files-table-wrap {
   position: relative;
   flex: 1;
-  min-height: 220px;
+  min-height: 0;
 }
 
 .files-table-wrap .ant-table-wrapper,
@@ -1520,4 +1520,20 @@ html[data-theme='vibrant'] .ant-menu-item-selected {
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.rename-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rename-page > .page-header {
+  margin-bottom: 2px;
+}
+
+.rename-preview-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }

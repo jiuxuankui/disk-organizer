@@ -258,6 +258,57 @@ test('重复文件页支持范围与模式选择，完整比对后显示重复�
   await navTo('全部文件');
 });
 
+test('从全部文件进入批量重命名，预览执行后可整批撤销', async () => {
+  await navTo('全部文件');
+  await page.locator('.files-search input').fill('keep.txt');
+  const row = page.locator('.files-panel .ant-table-row', { hasText: 'keep.txt' });
+  await expect(row).toHaveCount(1);
+  await row.locator('input[type=checkbox]').click();
+  await page.locator('.bulk-bar').getByRole('button', { name: '批量重命名' }).click();
+
+  await expect(page.locator('.rename-page')).toContainText('批量重命名');
+  await expect(page.locator('.rename-page .ant-table-row', { hasText: 'keep.txt' })).toHaveCount(1);
+
+  await page.getByRole('button', { name: '添加规则' }).click();
+  await page.locator('.ant-dropdown-menu-item', { hasText: '添加前缀/后缀' }).click();
+  await page.getByLabel('添加前缀').fill('E2E-');
+  await expect(page.locator('.rename-preview-status', { hasText: '可重命名' })).toHaveCount(1, {
+    timeout: 30000,
+  });
+
+  await page.getByRole('button', { name: '开始重命名', exact: true }).click();
+  await waitModalTitle('确认批量重命名');
+  const focused = await page.evaluate(() =>
+    (document.activeElement?.textContent ?? '').replace(/\s+/g, ''),
+  );
+  expect(focused).toBe('暂不重命名');
+  await visibleModal().getByRole('button', { name: '暂不重命名' }).click();
+  expect(fs.existsSync(path.join(fixtureRoot, 'E2E-keep.txt'))).toBe(false);
+
+  await page.getByRole('button', { name: '开始重命名', exact: true }).click();
+  await waitModalTitle('确认批量重命名');
+  await page.getByRole('button', { name: '确认开始重命名' }).click();
+  await expect(page.locator('.rename-page')).toContainText('重命名任务结束', { timeout: 30000 });
+  expect(fs.existsSync(path.join(fixtureRoot, 'keep.txt'))).toBe(false);
+  expect(fs.existsSync(path.join(fixtureRoot, 'E2E-keep.txt'))).toBe(true);
+
+  await page
+    .locator('.rename-page')
+    .getByRole('button', { name: '撤销上次批量', exact: true })
+    .first()
+    .click();
+  await waitModalTitle('撤销上次批量重命名');
+  await page.getByRole('button', { name: '确认撤销上次批量' }).click();
+  await expect(page.locator('.rename-page')).toContainText('撤销任务结束', { timeout: 30000 });
+  expect(fs.existsSync(path.join(fixtureRoot, 'keep.txt'))).toBe(true);
+  expect(fs.existsSync(path.join(fixtureRoot, 'E2E-keep.txt'))).toBe(false);
+
+  await navTo('全部文件');
+  await page.locator('.files-search input').fill('keep.txt');
+  await expect(page.locator('.files-panel .ant-table-row', { hasText: 'keep.txt' })).toHaveCount(1);
+  await page.locator('.files-search input').fill('');
+});
+
 test('删除预览默认取消，确认后进入假回收站并刷新列表', async () => {
   const deleteMe = path.join(fixtureRoot, 'delete-me.bin');
   const row = page.locator('.files-panel .ant-table-row', { hasText: 'delete-me.bin' });

@@ -104,6 +104,12 @@ export const fileIdSchema = z
   })
   .strict();
 
+export const fileIdsSchema = z
+  .object({
+    fileIds: z.array(z.number().int().positive()).max(20000, '一次最多读取 20000 个文件'),
+  })
+  .strict();
+
 export const duplicatesStartSchema = z
   .object({
     drives: z.array(driveLetterSchema).min(1, '请至少选择一块硬盘').max(26).optional(),

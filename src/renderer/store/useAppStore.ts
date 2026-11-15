@@ -15,8 +15,16 @@ import type {
   ScanProgress,
 } from '@shared/types';
 import { popPage, pushPage } from '../lib/back';
+import { RENAME_ITEM_LIMIT, type RenameItem } from '@shared/rename';
 
-export type PageKey = 'overview' | 'files' | 'duplicates' | 'video' | 'organize' | 'settings';
+export type PageKey =
+  | 'overview'
+  | 'files'
+  | 'rename'
+  | 'duplicates'
+  | 'video'
+  | 'organize'
+  | 'settings';
 
 export interface FilesPrefill {
   drive: string | null;
@@ -34,7 +42,15 @@ const PAGE_KEY = 'disk-organizer:last-page';
 const DRIVE_KEY = 'disk-organizer:last-drive';
 const INDEX_SYNC_INTERVAL_MS = 10 * 60_000;
 let lastIndexSyncAt = 0;
-const VALID_PAGES: PageKey[] = ['overview', 'files', 'duplicates', 'video', 'organize', 'settings'];
+const VALID_PAGES: PageKey[] = [
+  'overview',
+  'files',
+  'rename',
+  'duplicates',
+  'video',
+  'organize',
+  'settings',
+];
 
 function readPage(): PageKey {
   try {
@@ -66,6 +82,10 @@ export function describeError(error: unknown): string {
   return raw.replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, '');
 }
 
+function renamePathKey(value: string): string {
+  return value.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+}
+
 let noticeSeq = 0;
 
 function notice(kind: Notice['kind'], text: string): Notice {
@@ -90,6 +110,7 @@ interface AppState {
   detailFile: FileRecord | null;
   filesPrefill: FilesPrefill;
   videoPaths: string[];
+  renameItems: RenameItem[];
   notice: Notice | null;
   deletePhase: DeletePhase;
   deletePreview: DeletePreview | null;
@@ -124,6 +145,12 @@ interface AppState {
   openInExplorer(path: string): Promise<void>;
   browseToFiles(prefill: Partial<FilesPrefill>): void;
   clearFilesPrefill(): void;
+  addRenameItems(
+    items: Array<Pick<RenameItem, 'path' | 'kind'> & { fileId?: number | null }>,
+  ): number;
+  removeRenameItem(path: string): void;
+  clearRenameItems(): void;
+  rewriteRenameItemPaths(pairs: Array<{ from: string; to: string }>): void;
   requestDelete(fileIds: number[], folderPaths?: string[]): Promise<void>;
   confirmDelete(): Promise<void>;
   cancelDelete(): Promise<void>;
@@ -159,6 +186,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   detailFile: null,
   filesPrefill: { drive: null, type: null, rootPath: null },
   videoPaths: [],
+  renameItems: [],
   notice: null,
   deletePhase: 'idle',
   deletePreview: null,
@@ -375,6 +403,50 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ filesPrefill: { drive: null, type: null, rootPath: null } });
   },
 
+  addRenameItems(items) {
+    const current = get().renameItems;
+    const seen = new Set(current.map((item) => renamePathKey(item.path)));
+    const next = [...current];
+    for (const item of items) {
+      const key = renamePathKey(item.path);
+      if (!key || seen.has(key)) continue;
+      if (next.length >= RENAME_ITEM_LIMIT) break;
+      seen.add(key);
+      next.push({
+        fileId: item.fileId ?? null,
+        path: item.path,
+        kind: item.kind,
+      });
+    }
+    const added = next.length - current.length;
+    if (added > 0) set({ renameItems: next });
+    return added;
+  },
+
+  removeRenameItem(path) {
+    const key = renamePathKey(path);
+    set({
+      renameItems: get().renameItems.filter((item) => renamePathKey(item.path) !== key),
+    });
+  },
+
+  clearRenameItems() {
+    set({ renameItems: [] });
+  },
+
+  rewriteRenameItemPaths(pairs) {
+    if (pairs.length === 0) return;
+    const mapping = new Map(pairs.map((pair) => [renamePathKey(pair.from), pair.to]));
+    let changed = false;
+    const renameItems = get().renameItems.map((item) => {
+      const target = mapping.get(renamePathKey(item.path));
+      if (!target || target === item.path) return item;
+      changed = true;
+      return { ...item, path: target };
+    });
+    if (changed) set({ renameItems });
+  },
+
   async requestDelete(fileIds, folderPaths = []) {
     const ids = [...new Set(fileIds.filter((id) => Number.isInteger(id) && id > 0))];
     const folders = [...new Set(folderPaths.filter((folder) => folder.trim().length > 0))];
@@ -517,8 +589,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 }));
 
-export function isScanActive(scan: ScanProgress | null): boolean {
-  if (!scan) return false;
+export function isScanActive(scan: ScanProgress | null): boolean {  if (!scan) return false;
   return (
     scan.status === 'enumerating' ||
     scan.status === 'indexing' ||

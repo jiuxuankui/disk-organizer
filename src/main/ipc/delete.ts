@@ -6,6 +6,7 @@ import { deleteFilesSchema, parseIpc, type DeleteFilesPayload } from './schemas'
 
 function ensureIdle(ctx: IpcContext): void {
   if (ctx.organize.isRunning()) throw new Error('文件整理进行中，请完成或停止后再删除文件');
+  if (ctx.rename.isRunning()) throw new Error('批量重命名进行中，请完成或停止后再删除文件');
   if (ctx.archive.isRunning()) throw new Error('压缩打包进行中，请完成或取消后再删除文件');
   if (ctx.video.isRunning()) throw new Error('视频压缩进行中，完成或取消后再删除文件');
   if (ctx.scan.isBusy()) throw new Error('扫描进行中，完成后再删除文件');
@@ -19,6 +20,7 @@ export function registerDeleteIpc(ctx: IpcContext): void {
   ipcMain.handle(IPC.deletePreview, (_event, raw: unknown): DeletePreview => {
     const payload: DeleteFilesPayload = parseIpc(deleteFilesSchema, raw, '删除预览');
     if (ctx.scan.isBusy()) throw new Error('扫描进行中，完成后再删除文件');
+    if (ctx.rename.isRunning()) throw new Error('批量重命名进行中，请完成或停止后再删除文件');
     return ctx.deleteService.preview(payload.fileIds, payload.folderPaths);
   });
 

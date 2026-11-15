@@ -16,6 +16,7 @@ import {
 import { DeleteOutlined, FolderAddOutlined } from '@ant-design/icons';
 import type { DuplicateGroup, DuplicateMode, DuplicatesState } from '@shared/types';
 import { MAX_DUPLICATE_FOLDERS } from '@shared/constants';
+import { RENAME_ITEM_LIMIT } from '@shared/rename';
 import { COPY } from '@shared/copy';
 import {
   formatBytes,
@@ -392,6 +393,34 @@ export default function DuplicatesPage(): React.JSX.Element {
   const handleDelete = async (): Promise<void> => {
     if (selected.size === 0 || scanning || recycleUnavailable) return;
     await requestDelete([...selected]);
+  };
+
+  const handleRename = async (): Promise<void> => {
+    if (selected.size === 0 || scanning) return;
+    if (selected.size > RENAME_ITEM_LIMIT) {
+      pushNotice('warning', `一次最多重命名 ${RENAME_ITEM_LIMIT} 个文件，请减少勾选`);
+      return;
+    }
+    try {
+      const files = await window.api.getFiles([...selected]);
+      if (files.length === 0) {
+        pushNotice('info', '勾选的文件已不在索引中，请重新勾选');
+        return;
+      }
+      const store = useAppStore.getState();
+      const added = store.addRenameItems(
+        files.map((file) => ({ fileId: file.id, path: file.path, kind: 'file' as const })),
+      );
+      store.setPage('rename');
+      pushNotice(
+        'info',
+        added > 0
+          ? `已加入批量重命名：${added} 个文件`
+          : '勾选的文件已全部在批量重命名列表中',
+      );
+    } catch (error) {
+      pushNotice('error', `读取待重命名文件失败：${describeError(error)}`);
+    }
   };
 
   const selectedSummary = selectionSummary(selected, sizes);
@@ -791,6 +820,9 @@ export default function DuplicatesPage(): React.JSX.Element {
               onSuggest={() => void handleSuggest()}
               onClear={() => setSelected(new Set())}
               onDelete={() => void handleDelete()}
+              onRename={() => void handleRename()}
+              renameDisabled={scanning}
+              renameHint="扫描完成后可批量重命名"
             />
           </div>
         </div>

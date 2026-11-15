@@ -50,6 +50,15 @@ export const IPC = {
   filesFacets: 'files:facets',
   filesFolderContents: 'files:folder-contents',
   filesSyncIndex: 'files:sync-index',
+  filesGetMany: 'files:get-many',
+
+  renamePickItems: 'rename:pick-items',
+  renamePreview: 'rename:preview',
+  renameStart: 'rename:start',
+  renameState: 'rename:state',
+  renameCancel: 'rename:cancel',
+  renameUndo: 'rename:undo',
+  renameUndoInfo: 'rename:undo-info',
 
   duplicatesDirectory: 'duplicates:directory',
   duplicatesState: 'duplicates:state',

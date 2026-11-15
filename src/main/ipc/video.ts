@@ -24,6 +24,7 @@ export function registerVideoIpc(ctx: IpcContext): void {
   ipcMain.handle(IPC.videoStart, (_event, raw: unknown) => {
     const input = parseIpc(videoStartSchema, raw, '视频压缩');
     if (ctx.organize.isRunning()) throw new Error('文件整理进行中，请完成或停止后再压缩视频');
+    if (ctx.rename.isRunning()) throw new Error('批量重命名进行中，请完成或停止后再压缩视频');
     if (ctx.archive.isRunning()) throw new Error('压缩打包进行中，请完成或取消后再压缩视频');
     if (ctx.scan.isBusy() || ctx.deleteService.isRunning()) {
       throw new Error('请等待扫描、重复查找或删除任务结束后再压缩视频');

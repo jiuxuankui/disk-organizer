@@ -112,7 +112,7 @@ export default function FileTable({
     if (!element) return;
     const observer = new ResizeObserver((entries) => {
       const next = Math.floor(entries[0]?.contentRect.height ?? 0);
-      if (next > 0) setBodyHeight(Math.max(220, next - 4));
+      if (next > 0) setBodyHeight(Math.max(120, next - 4));
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -294,7 +294,7 @@ export default function FileTable({
         rowSelection={rowSelection}
         onChange={handleTableChange}
         components={{ header: { cell: ResizableHeaderCell } }}
-        scroll={{ x: 668 + nameWidth, y: Math.max(220, bodyHeight - 42) }}
+        scroll={{ x: 668 + nameWidth, y: Math.max(120, bodyHeight - 42) }}
         rowClassName="file-row"
         onRow={(record) => ({
           onClick: (event) => {

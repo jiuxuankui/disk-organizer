@@ -13,6 +13,7 @@ import ArchiveModal from '../components/ArchiveModal';
 import MoveModal, { type MoveSelection } from '../components/MoveModal';
 import { VIDEO_EXTENSIONS } from '@shared/video';
 import { ORGANIZE_MATCH_LIMIT } from '@shared/organize';
+import { RENAME_ITEM_LIMIT } from '@shared/rename';
 import {
   buildFileQuery,
   DEFAULT_FILE_SORT,
@@ -417,6 +418,72 @@ export default function FilesPage(): React.JSX.Element {
     void useAppStore.getState().refreshDrives();
   }, []);
 
+  const handleRename = async (): Promise<void> => {
+    if (scanning || deletePhase === 'running') return;
+    const store = useAppStore.getState();
+    try {
+      if (filters.view === 'folders') {
+        const folderItems = [...folderSelection.folders.values()].map((folder) => ({
+          fileId: null,
+          path: folder.path,
+          kind: 'folder' as const,
+        }));
+        const fileItems = [...folderSelection.files.values()].map((file) => ({
+          fileId: file.id,
+          path: file.path,
+          kind: 'file' as const,
+        }));
+        const items = [...folderItems, ...fileItems];
+        if (items.length === 0) {
+          pushNotice('info', '当前没有可重命名的项目');
+          return;
+        }
+        if (items.length > RENAME_ITEM_LIMIT) {
+          pushNotice('warning', `一次最多重命名 ${RENAME_ITEM_LIMIT} 个项目，请减少选择`);
+          return;
+        }
+        const added = store.addRenameItems(items);
+        store.setPage('rename');
+        pushNotice(
+          'info',
+          added > 0
+            ? `已加入批量重命名：${added} 个项目`
+            : '所选项目已全部在批量重命名列表中',
+        );
+        return;
+      }
+      const ids =
+        selection.mode === 'all'
+          ? await window.api.listFileIds({ ...baseQuery, page: 1, pageSize: 1000 })
+          : selection.keys;
+      if (ids.length === 0) {
+        pushNotice('info', '当前没有可重命名的文件');
+        return;
+      }
+      if (ids.length > RENAME_ITEM_LIMIT) {
+        pushNotice('warning', `一次最多重命名 ${RENAME_ITEM_LIMIT} 个文件，请先收窄筛选条件`);
+        return;
+      }
+      const files = await window.api.getFiles(ids);
+      if (files.length === 0) {
+        pushNotice('info', '所选文件已不在索引中，请重新选择');
+        return;
+      }
+      const added = store.addRenameItems(
+        files.map((file) => ({ fileId: file.id, path: file.path, kind: 'file' as const })),
+      );
+      store.setPage('rename');
+      pushNotice(
+        'info',
+        added > 0
+          ? `已加入批量重命名：${added} 个文件`
+          : '所选文件已全部在批量重命名列表中',
+      );
+    } catch (error) {
+      pushNotice('error', `读取待重命名文件失败：${describeError(error)}`);
+    }
+  };
+
   if (!overview?.scan) {
     return (
       <div className="files-page">
@@ -524,6 +591,9 @@ export default function FilesPage(): React.JSX.Element {
           onMove={() => void handleMove()}
           moveDisabled={scanning || deletePhase === 'running'}
           moveHint={scanning ? '扫描完成后可移动文件' : '删除进行中，请等待完成'}
+          onRename={() => void handleRename()}
+          renameDisabled={scanning || deletePhase === 'running'}
+          renameHint={scanning ? '扫描完成后可批量重命名' : '删除进行中，请等待完成'}
           onVideo={() => void handleCompress('video')}
           onArchive={() => void handleCompress('archive')}
           compressDisabled={scanning || preparing}
@@ -549,6 +619,9 @@ export default function FilesPage(): React.JSX.Element {
           onMove={() => void handleMove()}
           moveDisabled={folderDeleteDisabled}
           moveHint={folderDeleteHint}
+          onRename={() => void handleRename()}
+          renameDisabled={folderDeleteDisabled}
+          renameHint={folderDeleteHint}
           onDelete={() =>
             void requestDelete(
               [...folderSelection.files.keys()],

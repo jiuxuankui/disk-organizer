@@ -10,6 +10,7 @@ import type {
 } from '@shared/types';
 import {
   getFileById,
+  getFilesByIds,
   listFolderContents,
   listFolders,
   queryFileIds,
@@ -17,7 +18,7 @@ import {
 } from '../db/filesRepo';
 import { getActiveScanId } from '../db/scansRepo';
 import type { IpcContext } from './context';
-import { fileIdSchema, fileQuerySchema, folderQuerySchema, parseIpc } from './schemas';
+import { fileIdSchema, fileIdsSchema, fileQuerySchema, folderQuerySchema, parseIpc } from './schemas';
 
 function emptyPage(query?: Partial<FileQuery>): PagedResult<FileRecord> {
   return {
@@ -49,6 +50,18 @@ export function registerFilesIpc(ctx: IpcContext): void {
     const scanId = getActiveScanId(ctx.db);
     if (scanId === null) return null;
     return getFileById(ctx.db, scanId, id);
+  });
+
+  ipcMain.handle(IPC.filesGetMany, (_event, raw: unknown): FileRecord[] => {
+    const { fileIds } = parseIpc(fileIdsSchema, raw, '批量读取文件');
+    const scanId = getActiveScanId(ctx.db);
+    if (scanId === null) return [];
+    const unique = [...new Set(fileIds)];
+    const result: FileRecord[] = [];
+    for (let index = 0; index < unique.length; index += 500) {
+      result.push(...getFilesByIds(ctx.db, scanId, unique.slice(index, index + 500)));
+    }
+    return result;
   });
 
   ipcMain.handle(IPC.filesFacets, (_event, raw: unknown): FolderFacet[] => {

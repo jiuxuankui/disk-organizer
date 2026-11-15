@@ -16,9 +16,11 @@ import type { ArchiveService } from '../services/archiveService';
 
 import type { OrganizeService } from '../services/organizeService';
 import type { IndexSyncService } from '../services/indexSyncService';
+import type { RenameService } from '../services/renameService';
 
 export interface IpcContext {
   organize: OrganizeService;
+  rename: RenameService;
   indexSync: IndexSyncService;
   archive: ArchiveService;
   video: VideoService;

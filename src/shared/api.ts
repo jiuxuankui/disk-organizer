@@ -28,6 +28,13 @@ import type {
 import type { VideoRequest, VideoState } from './video';
 import type { ArchiveRequest, ArchiveState } from './archive';
 import type {
+  RenamePreview,
+  RenamePreviewRequest,
+  RenameStartRequest,
+  RenameState,
+  RenameUndoInfo,
+} from './rename';
+import type {
   MovePreview,
   MovePreviewRequest,
   MoveStartRequest,
@@ -53,6 +60,11 @@ export interface DuplicateStartInput {
   drives?: string[];
   folders?: string[];
   mode: DuplicateMode;
+}
+
+export interface RenamePickItem {
+  path: string;
+  kind: 'file' | 'folder';
 }
 
 export interface DiskOrganizerApi {
@@ -85,7 +97,15 @@ export interface DiskOrganizerApi {
   listFileFolders(query: FolderQuery): Promise<FolderFacet[]>;
   listFolderContents(query: FolderQuery): Promise<FolderContents>;
   getFile(id: number): Promise<FileRecord | null>;
+  getFiles(fileIds: number[]): Promise<FileRecord[]>;
   syncIndex(): Promise<IndexSyncResult>;
+  pickRenameItems(): Promise<RenamePickItem[]>;
+  previewRename(input: RenamePreviewRequest): Promise<RenamePreview>;
+  startRename(input: RenameStartRequest): Promise<RenameState>;
+  getRenameState(): Promise<RenameState>;
+  cancelRename(): Promise<RenameState>;
+  undoRename(): Promise<RenameState>;
+  getRenameUndoInfo(): Promise<RenameUndoInfo | null>;
   selectDuplicateDirectory(): Promise<string | null>;
   getDuplicatesState(): Promise<DuplicatesState>;
   startDuplicates(input: DuplicateStartInput): Promise<DuplicatesState>;

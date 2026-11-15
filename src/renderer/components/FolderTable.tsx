@@ -60,7 +60,7 @@ export default function FolderTable({
     if (!element) return;
     const observer = new ResizeObserver((entries) => {
       const next = Math.floor(entries[0]?.contentRect.height ?? 0);
-      if (next > 0) setBodyHeight(Math.max(220, next - 4));
+      if (next > 0) setBodyHeight(Math.max(120, next - 4));
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -305,7 +305,7 @@ export default function FolderTable({
         dataSource={rows}
         loading={loading}
         pagination={false}
-        scroll={{ x: 720, y: Math.max(220, bodyHeight - 42) }}
+        scroll={{ x: 720, y: Math.max(120, bodyHeight - 42) }}
         rowClassName={(row) =>
           row.kind === 'folder'
             ? 'folder-row'

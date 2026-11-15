@@ -4,6 +4,7 @@ export const COPY = {
   appName: '硬盘整理',
   navOverview: '总览',
   navFiles: '全部文件',
+  navRename: '批量重命名',
   navDuplicates: '重复文件',
   navSettings: '设置',
   deleteAction: '移到回收站',
