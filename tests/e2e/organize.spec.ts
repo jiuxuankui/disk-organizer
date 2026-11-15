@@ -273,6 +273,8 @@ test('一键智能归类：分类预览、默认不含其他、按需建子目�
   const smartOut = path.join(root, 'smart-output');
   fs.mkdirSync(smartOut);
 
+  const removeSource = page.getByRole('button', { name: '移除来源', exact: true });
+  while ((await removeSource.count()) > 0) await removeSource.first().click();
   await page.getByText('一键智能归类', { exact: true }).click();
   await choose('选择来源文件夹', path.join(fixture, 'smart'));
   await app.evaluate(

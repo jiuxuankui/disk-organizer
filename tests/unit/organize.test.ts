@@ -9,7 +9,11 @@ import {
   smartOrganizePreviewSchema,
   type OrganizeRule,
 } from '@shared/organize';
-import { chooseOrganizeRule, organizeAttributeError, ruleMatchesFile } from '../../src/main/services/organizeCore';
+import {
+  chooseOrganizeRule,
+  organizeAttributeError,
+  ruleMatchesFile,
+} from '../../src/main/services/organizeCore';
 
 const MB = 1024 * 1024;
 
@@ -52,7 +56,7 @@ describe('organize rules and IPC boundary', () => {
       expect(organizeRulesSchema.safeParse([{ ...rule, targetDir }]).success).toBe(false);
     }
     expect(
-      organizePreviewSchema.safeParse({ sourceDir: 'C:\\docs', rules: [rule], moveNow: true })
+      organizePreviewSchema.safeParse({ sourceDirs: ['C:\\docs'], rules: [rule], moveNow: true })
         .success,
     ).toBe(false);
   });
@@ -61,8 +65,11 @@ describe('organize rules and IPC boundary', () => {
     expect(organizeStartSchema.parse(input)).toEqual(input);
     expect(organizeStartSchema.safeParse({ token: rule.id, fileIds: [1] }).success).toBe(false);
     expect(organizeStartSchema.safeParse({ ...input, fileIds: [] }).success).toBe(false);
-    expect(organizeStartSchema.safeParse({ ...input, fileIds: Array(10001).fill(1) }).success).toBe(
+    expect(organizeStartSchema.safeParse({ ...input, fileIds: Array(50001).fill(1) }).success).toBe(
       false,
+    );
+    expect(organizeStartSchema.safeParse({ ...input, fileIds: Array(50000).fill(1) }).success).toBe(
+      true,
     );
     expect(organizeStartSchema.safeParse({ ...input, target: 'D:\\unsafe' }).success).toBe(false);
   });
@@ -92,25 +99,41 @@ describe('organize rules and IPC boundary', () => {
     expect(chooseOrganizeRule(file, [rule], 'order')).toBe(rule);
   });
 
-  it('validates preview priority through the IPC boundary', () => {
+  it('validates preview priority and multiple source folders through the IPC boundary', () => {
     expect(
-      organizePreviewSchema.parse({ sourceDir: 'C:\\docs', rules: [rule], priority: 'order' })
-        .priority,
+      organizePreviewSchema.parse({
+        sourceDirs: ['C:\\docs', 'D:\\downloads'],
+        rules: [rule],
+        priority: 'order',
+      }).priority,
     ).toBe('order');
     expect(
       organizePreviewSchema.safeParse({
-        sourceDir: 'C:\\docs',
+        sourceDirs: ['C:\\docs'],
         rules: [rule],
         priority: 'order',
       }).success,
     ).toBe(true);
     expect(
-      organizePreviewSchema.safeParse({ sourceDir: 'C:\\docs', rules: [rule], priority: 'bad' })
-        .success,
+      organizePreviewSchema.safeParse({
+        sourceDirs: ['C:\\docs'],
+        rules: [rule],
+        priority: 'bad',
+      }).success,
     ).toBe(false);
-    expect(organizePreviewSchema.safeParse({ sourceDir: 'C:\\docs', rules: [rule] }).success).toBe(
-      false,
-    );
+    expect(
+      organizePreviewSchema.safeParse({ sourceDirs: ['C:\\docs'], rules: [rule] }).success,
+    ).toBe(false);
+    expect(
+      organizePreviewSchema.safeParse({ sourceDirs: [], rules: [rule], priority: 'order' }).success,
+    ).toBe(false);
+    expect(
+      organizePreviewSchema.safeParse({
+        sourceDirs: Array(21).fill('C:\\docs'),
+        rules: [rule],
+        priority: 'order',
+      }).success,
+    ).toBe(false);
   });
 
   it('matches size, time and path conditions individually and via all/any', () => {
@@ -278,12 +301,12 @@ describe('organize rules and IPC boundary', () => {
     expect(organizeRuleSchema.parse({ ...rule, namePattern: '  XX-XXX  ' }).namePattern).toBe(
       'XX-XXX',
     );
-    expect(
-      organizeRuleSchema.parse({ ...rule, namePatternMode: 'contains' }).namePatternMode,
-    ).toBe('contains');
-    expect(
-      organizeRuleSchema.safeParse({ ...rule, namePatternMode: 'anywhere' }).success,
-    ).toBe(false);
+    expect(organizeRuleSchema.parse({ ...rule, namePatternMode: 'contains' }).namePatternMode).toBe(
+      'contains',
+    );
+    expect(organizeRuleSchema.safeParse({ ...rule, namePatternMode: 'anywhere' }).success).toBe(
+      false,
+    );
     expect(organizeRuleSchema.safeParse({ ...rule, namePattern: 'x'.repeat(121) }).success).toBe(
       false,
     );
@@ -315,14 +338,14 @@ describe('organize rules and IPC boundary', () => {
     expect(smartCategoryOf('program')).toBe('other');
     expect(smartCategoryOf('other')).toBe('other');
 
-    const base = { sourceDir: 'C:\\docs', targetRoot: 'D:\\归档', categories: ['video'] };
+    const base = { sourceDirs: ['C:\\docs'], targetRoot: 'D:\\归档', categories: ['video'] };
     expect(smartOrganizePreviewSchema.parse(base).categories).toEqual(['video']);
     expect(smartOrganizePreviewSchema.safeParse({ ...base, categories: [] }).success).toBe(false);
     expect(smartOrganizePreviewSchema.safeParse({ ...base, categories: ['bad'] }).success).toBe(
       false,
     );
     expect(
-      smartOrganizePreviewSchema.safeParse({ sourceDir: 'C:\\docs', categories: ['video'] })
+      smartOrganizePreviewSchema.safeParse({ sourceDirs: ['C:\\docs'], categories: ['video'] })
         .success,
     ).toBe(false);
   });

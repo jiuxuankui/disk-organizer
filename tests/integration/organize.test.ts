@@ -48,9 +48,10 @@ function setup() {
     fs.rmSync(cross, { recursive: true, force: true });
   });
   const sourceDir = path.join(root, 'source');
+  const source2 = path.join(root, 'source2');
   const output = path.join(root, 'output');
   const trash = path.join(root, 'recoverable');
-  for (const dir of [sourceDir, output, trash]) fs.mkdirSync(dir);
+  for (const dir of [sourceDir, source2, output, trash]) fs.mkdirSync(dir);
   const db = openDatabase(path.join(root, 'index.db'));
   cleanups.push(() => db.close());
   const drive = root.slice(0, 2).toUpperCase();
@@ -73,8 +74,8 @@ function setup() {
     },
   };
   const job = new OrganizeService(deps);
-  function insert(name: string, content: string | Buffer = 'original content') {
-    const file = path.join(sourceDir, name);
+  function insert(name: string, content: string | Buffer = 'original content', target = sourceDir) {
+    const file = path.join(target, name);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, content);
     const stat = fs.statSync(file, { bigint: true });
@@ -116,10 +117,10 @@ function setup() {
     return { file, id: Number(result.lastInsertRowid), hash: digest(file) };
   }
   function plan(targetDir = output) {
-    return job.plan({ sourceDir, rules: [makeRule(targetDir)], priority: 'order' });
+    return job.plan({ sourceDirs: [sourceDir], rules: [makeRule(targetDir)], priority: 'order' });
   }
   function planSmart(targetRoot = output, categories: SmartCategory[] = SMART_CATEGORY_LIST) {
-    return job.planSmart({ sourceDir, targetRoot, categories });
+    return job.planSmart({ sourceDirs: [sourceDir], targetRoot, categories });
   }
   function insertSynthetic(count: number, type: FileTypeKey, stem = 'bulk') {
     const ext = type === 'video' ? 'mp4' : 'jpg';
@@ -170,6 +171,7 @@ function setup() {
     root,
     cross,
     sourceDir,
+    source2,
     output,
     trash,
     db,
@@ -248,6 +250,29 @@ describe('safe file organization', () => {
     await s.job.whenIdle();
     expect(s.job.getState().results[0].message).toContain('已变化');
     expect(fs.readdirSync(s.output)).toEqual([]);
+  });
+  it('合并多个来源文件夹，重复或嵌套的来源只扫描一次', async () => {
+    const s = setup();
+    const first = s.insert('first.txt');
+    const second = s.insert('second.txt', 'second content', s.source2);
+    const preview = await s.job.plan({
+      sourceDirs: [s.sourceDir, s.source2],
+      rules: [makeRule(s.output)],
+      priority: 'order',
+    });
+    expect(preview.items.map((item) => item.id).sort((a, b) => a - b)).toEqual(
+      [first.id, second.id].sort((a, b) => a - b),
+    );
+    expect(preview.items.every((item) => item.allowed)).toBe(true);
+
+    const nested = await s.job.plan({
+      sourceDirs: [s.root, s.sourceDir, s.source2],
+      rules: [makeRule(s.output)],
+      priority: 'order',
+    });
+    expect(nested.items.map((item) => item.id).sort((a, b) => a - b)).toEqual(
+      [first.id, second.id].sort((a, b) => a - b),
+    );
   });
   it('requires confirmation for real cross-volume copy, verifies bytes before recycling and keeps recoverable originals', async () => {
     const s = setup();
@@ -334,10 +359,8 @@ describe('safe file organization', () => {
     const hit = s.insert('会议 AB-123 备份.txt');
     s.insert('AB-12.txt');
     const preview = await s.job.plan({
-      sourceDir: s.sourceDir,
-      rules: [
-        { ...makeRule(s.output), namePattern: 'XX-XXX', namePatternMode: 'contains' },
-      ],
+      sourceDirs: [s.sourceDir],
+      rules: [{ ...makeRule(s.output), namePattern: 'XX-XXX', namePatternMode: 'contains' }],
       priority: 'order',
     });
     expect(preview.items.map((item) => item.id)).toEqual([hit.id]);
@@ -447,7 +470,7 @@ describe('organize preview source limits', () => {
     s.insertSynthetic(10001, 'image');
     const hit = s.insert('movie.mp4');
     const preview = await s.job.plan({
-      sourceDir: s.sourceDir,
+      sourceDirs: [s.sourceDir],
       rules: [{ ...makeRule(s.output), type: 'video' }],
       priority: 'order',
     });
@@ -455,19 +478,38 @@ describe('organize preview source limits', () => {
     expect(preview.items[0]).toMatchObject({ id: hit.id, allowed: true });
   }, 30000);
 
-  it('自定义规则的命中数超过 10000 时拒绝预览', async () => {
+  it('自定义规则的命中数超过 50000 时拒绝预览', async () => {
     const s = setup();
-    s.insertSynthetic(10001, 'video');
+    s.insertSynthetic(50001, 'video');
     await expect(
-      s.job.plan({ sourceDir: s.sourceDir, rules: [makeRule(s.output)], priority: 'order' }),
-    ).rejects.toThrow('命中规则的文件超过 10000 个，请缩小来源或规则范围');
-  }, 30000);
+      s.job.plan({ sourceDirs: [s.sourceDir], rules: [makeRule(s.output)], priority: 'order' }),
+    ).rejects.toThrow('命中规则的文件超过 50000 个，请缩小来源或规则范围');
+  }, 120000);
 
   it('一键智能归类同样按命中数限制', async () => {
     const s = setup();
-    s.insertSynthetic(10001, 'video');
+    s.insertSynthetic(50001, 'video');
     await expect(
-      s.job.planSmart({ sourceDir: s.sourceDir, targetRoot: s.output, categories: ['video'] }),
-    ).rejects.toThrow('命中规则的文件超过 10000 个，请缩小来源或规则范围');
-  }, 30000);
+      s.job.planSmart({
+        sourceDirs: [s.sourceDir],
+        targetRoot: s.output,
+        categories: ['video'],
+      }),
+    ).rejects.toThrow('命中规则的文件超过 50000 个，请缩小来源或规则范围');
+  }, 120000);
+
+  it('一键智能归类合并多个来源文件夹', async () => {
+    const s = setup();
+    const movie = s.insert('movie.mp4', 'video bytes');
+    const pic = s.insert('pic.png', 'image bytes', s.source2);
+    const preview = await s.job.planSmart({
+      sourceDirs: [s.sourceDir, s.source2],
+      targetRoot: s.output,
+      categories: ['video', 'image'],
+    });
+    expect(preview.items.map((item) => item.id).sort((a, b) => a - b)).toEqual(
+      [movie.id, pic.id].sort((a, b) => a - b),
+    );
+    expect(preview.items.every((item) => item.allowed)).toBe(true);
+  });
 });

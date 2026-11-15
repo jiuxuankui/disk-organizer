@@ -55,9 +55,11 @@ export const organizeRulesSchema = z
   );
 export const organizePrioritySchema = z.enum(['order', 'sameDrive']);
 export type OrganizePriority = z.infer<typeof organizePrioritySchema>;
+export const ORGANIZE_MATCH_LIMIT = 50000;
+export const MAX_ORGANIZE_SOURCES = 20;
 export const organizePreviewSchema = z
   .object({
-    sourceDir: localOrganizePath,
+    sourceDirs: z.array(localOrganizePath).min(1).max(MAX_ORGANIZE_SOURCES),
     rules: organizeRulesSchema,
     priority: organizePrioritySchema,
   })
@@ -65,7 +67,7 @@ export const organizePreviewSchema = z
 export const organizeStartSchema = z
   .object({
     token: z.string().uuid(),
-    fileIds: z.array(z.number().int().positive()).min(1).max(10000),
+    fileIds: z.array(z.number().int().positive()).min(1).max(ORGANIZE_MATCH_LIMIT),
     confirmCrossDrive: z.boolean(),
   })
   .strict();
@@ -115,7 +117,7 @@ export function smartCategoryOf(type: FileTypeKey): SmartCategory {
 
 export const smartOrganizePreviewSchema = z
   .object({
-    sourceDir: localOrganizePath,
+    sourceDirs: z.array(localOrganizePath).min(1).max(MAX_ORGANIZE_SOURCES),
     targetRoot: localOrganizePath,
     categories: z.array(z.enum(SMART_CATEGORIES)).min(1, '至少选择一个类别').max(7),
   })

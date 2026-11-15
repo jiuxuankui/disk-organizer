@@ -13,7 +13,7 @@ import type {
   SmartCategory,
   SmartOrganizePreviewRequest,
 } from '@shared/organize';
-import { SMART_CATEGORY_LABELS, smartCategoryOf } from '@shared/organize';
+import { SMART_CATEGORY_LABELS, smartCategoryOf, ORGANIZE_MATCH_LIMIT } from '@shared/organize';
 import { getActiveScanId } from '../db/scansRepo';
 import { getFileById, getFilesByIds, listSourceFileIds } from '../db/filesRepo';
 import { updateOrganizedFile } from '../db/organizeRepo';
@@ -24,14 +24,13 @@ import {
   organizeLocalPath,
   type OrganizePathKind,
 } from './organizeCore';
-import { getDriveLetter, normalizePathKey } from './filesystem';
+import { getDriveLetter, isSameOrSubPath, normalizePathKey } from './filesystem';
 import { moveFileNoReplace, readFileAttributes } from './windowsService';
 import { evaluateRecycleDecision, type RecycleBinPolicy } from './recycleBinService';
 import type { LongTrashPort } from './deleteService';
 
 const SOURCE_BATCH_SIZE = 2000;
-const MAX_PREVIEW_MATCHES = 10000;
-const TOO_MANY_MATCHES = '命中规则的文件超过 10000 个，请缩小来源或规则范围';
+const TOO_MANY_MATCHES = `命中规则的文件超过 ${ORGANIZE_MATCH_LIMIT} 个，请缩小来源或规则范围`;
 
 interface PlannedItem {
   item: OrganizeItem;
@@ -80,6 +79,22 @@ export class OrganizeService {
   private local(value: string, kind: OrganizePathKind = 'file'): string {
     return organizeLocalPath(value, this.deps.fixedDrives(), this.deps.protectedPaths, kind);
   }
+  private resolveSources(values: string[]): string[] {
+    const unique = new Map<string, string>();
+    for (const value of values) {
+      const dir = this.local(value, 'directory');
+      if (!fs.statSync(dir).isDirectory()) throw new Error('来源必须是文件夹');
+      const key = normalizePathKey(dir).replace(/\\+$/, '');
+      if (!unique.has(key)) unique.set(key, dir);
+    }
+    const ordered = [...unique.entries()].sort((a, b) => a[0].length - b[0].length);
+    const kept: string[] = [];
+    for (const [key, dir] of ordered) {
+      if (kept.some((parent) => isSameOrSubPath(key, normalizePathKey(parent)))) continue;
+      kept.push(dir);
+    }
+    return kept;
+  }
   private async scanSource(
     scanId: number,
     sourceDir: string,
@@ -105,8 +120,7 @@ export class OrganizeService {
       this.preview = null;
       const scanId = getActiveScanId(this.deps.db);
       if (scanId === null) throw new Error('请先扫描文件');
-      const sourceDir = this.local(input.sourceDir, 'directory');
-      if (!fs.statSync(sourceDir).isDirectory()) throw new Error('来源必须是文件夹');
+      const sources = this.resolveSources(input.sourceDirs);
       const rules = input.rules
         .filter((rule) => rule.enabled)
         .map((rule) => {
@@ -118,57 +132,59 @@ export class OrganizeService {
       const entries: PlannedItem[] = [];
       const items: OrganizeItem[] = [];
       const reserved = new Set<string>();
-      await this.scanSource(scanId, sourceDir, (files) => {
-        for (const file of files) {
-          const rule = chooseOrganizeRule(file, rules, input.priority);
-          if (!rule) continue;
-          let target = path.join(rule.targetDir, file.name);
-          const item: OrganizeItem = {
-            id: file.id,
-            source: file.path,
-            target,
-            size: file.size,
-            rule: rule.name,
-            crossDrive: false,
-            allowed: false,
-            message: '',
-          };
-          items.push(item);
-          try {
-            this.local(file.path);
-            const before = fs.lstatSync(file.path);
-            if (
-              !before.isFile() ||
-              before.size !== file.size ||
-              Math.trunc(before.mtimeMs) !== Math.trunc(file.mtimeMs)
-            )
-              throw new Error('文件已变化，请重新扫描');
-            if (normalizePathKey(target) === normalizePathKey(file.path))
-              throw new Error('已在目标文件夹，无需移动');
-            const { name, ext } = path.parse(file.name);
-            let suffix = 0;
-            while (fs.existsSync(target) || reserved.has(normalizePathKey(target))) {
-              suffix += 1;
-              if (suffix > 10000) throw new Error('目标同名文件过多');
-              target = path.join(rule.targetDir, `${name} (${suffix})${ext}`);
+      for (const source of sources) {
+        await this.scanSource(scanId, source, (files) => {
+          for (const file of files) {
+            const rule = chooseOrganizeRule(file, rules, input.priority);
+            if (!rule) continue;
+            let target = path.join(rule.targetDir, file.name);
+            const item: OrganizeItem = {
+              id: file.id,
+              source: file.path,
+              target,
+              size: file.size,
+              rule: rule.name,
+              crossDrive: false,
+              allowed: false,
+              message: '',
+            };
+            items.push(item);
+            try {
+              this.local(file.path);
+              const before = fs.lstatSync(file.path);
+              if (
+                !before.isFile() ||
+                before.size !== file.size ||
+                Math.trunc(before.mtimeMs) !== Math.trunc(file.mtimeMs)
+              )
+                throw new Error('文件已变化，请重新扫描');
+              if (normalizePathKey(target) === normalizePathKey(file.path))
+                throw new Error('已在目标文件夹，无需移动');
+              const { name, ext } = path.parse(file.name);
+              let suffix = 0;
+              while (fs.existsSync(target) || reserved.has(normalizePathKey(target))) {
+                suffix += 1;
+                if (suffix > 10000) throw new Error('目标同名文件过多');
+                target = path.join(rule.targetDir, `${name} (${suffix})${ext}`);
+              }
+              reserved.add(normalizePathKey(target));
+              item.target = target;
+              const parent = fs.statSync(rule.targetDir);
+              item.crossDrive =
+                getDriveLetter(file.path) !== getDriveLetter(target) || before.dev !== parent.dev;
+              if (item.crossDrive) this.checkRecycle(file.path, file.size);
+              item.allowed = true;
+              item.message = item.crossDrive
+                ? '跨盘：复制校验后回收原件，须确认'
+                : '同盘：直接移动，不重写文件内容';
+              entries.push({ item, before, parent, createDir: null });
+            } catch (error) {
+              item.message = error instanceof Error ? error.message : String(error);
             }
-            reserved.add(normalizePathKey(target));
-            item.target = target;
-            const parent = fs.statSync(rule.targetDir);
-            item.crossDrive =
-              getDriveLetter(file.path) !== getDriveLetter(target) || before.dev !== parent.dev;
-            if (item.crossDrive) this.checkRecycle(file.path, file.size);
-            item.allowed = true;
-            item.message = item.crossDrive
-              ? '跨盘：复制校验后回收原件，须确认'
-              : '同盘：直接移动，不重写文件内容';
-            entries.push({ item, before, parent, createDir: null });
-          } catch (error) {
-            item.message = error instanceof Error ? error.message : String(error);
+            if (items.length > ORGANIZE_MATCH_LIMIT) throw new Error(TOO_MANY_MATCHES);
           }
-          if (items.length > MAX_PREVIEW_MATCHES) throw new Error(TOO_MANY_MATCHES);
-        }
-      });
+        });
+      }
       const token = randomUUID();
       this.preview = { token, scanId, entries };
       return { token, items };
@@ -193,8 +209,7 @@ export class OrganizeService {
       this.preview = null;
       const scanId = getActiveScanId(this.deps.db);
       if (scanId === null) throw new Error('请先扫描文件');
-      const sourceDir = this.local(input.sourceDir, 'directory');
-      if (!fs.statSync(sourceDir).isDirectory()) throw new Error('来源必须是文件夹');
+      const sources = this.resolveSources(input.sourceDirs);
       const targetRoot = this.local(input.targetRoot, 'directory');
       const rootStat = fs.statSync(targetRoot);
       if (!rootStat.isDirectory()) throw new Error('目标根目录必须是文件夹');
@@ -222,58 +237,60 @@ export class OrganizeService {
       const entries: PlannedItem[] = [];
       const items: OrganizeItem[] = [];
       const reserved = new Set<string>();
-      await this.scanSource(scanId, sourceDir, (files) => {
-        for (const file of files) {
-          const category = smartCategoryOf(file.type);
-          if (!categories.has(category)) continue;
-          const state = dirState.get(category)!;
-          let target = path.join(state.dir, file.name);
-          const item: OrganizeItem = {
-            id: file.id,
-            source: file.path,
-            target,
-            size: file.size,
-            rule: SMART_CATEGORY_LABELS[category],
-            crossDrive: false,
-            allowed: false,
-            message: '',
-          };
-          items.push(item);
-          try {
-            if (state.blocked) throw new Error(state.blocked);
-            this.local(file.path);
-            const before = fs.lstatSync(file.path);
-            if (
-              !before.isFile() ||
-              before.size !== file.size ||
-              Math.trunc(before.mtimeMs) !== Math.trunc(file.mtimeMs)
-            )
-              throw new Error('文件已变化，请重新扫描');
-            if (normalizePathKey(target) === normalizePathKey(file.path))
-              throw new Error('已在目标文件夹，无需移动');
-            const { name, ext } = path.parse(file.name);
-            let suffix = 0;
-            while (fs.existsSync(target) || reserved.has(normalizePathKey(target))) {
-              suffix += 1;
-              if (suffix > 10000) throw new Error('目标同名文件过多');
-              target = path.join(state.dir, `${name} (${suffix})${ext}`);
+      for (const source of sources) {
+        await this.scanSource(scanId, source, (files) => {
+          for (const file of files) {
+            const category = smartCategoryOf(file.type);
+            if (!categories.has(category)) continue;
+            const state = dirState.get(category)!;
+            let target = path.join(state.dir, file.name);
+            const item: OrganizeItem = {
+              id: file.id,
+              source: file.path,
+              target,
+              size: file.size,
+              rule: SMART_CATEGORY_LABELS[category],
+              crossDrive: false,
+              allowed: false,
+              message: '',
+            };
+            items.push(item);
+            try {
+              if (state.blocked) throw new Error(state.blocked);
+              this.local(file.path);
+              const before = fs.lstatSync(file.path);
+              if (
+                !before.isFile() ||
+                before.size !== file.size ||
+                Math.trunc(before.mtimeMs) !== Math.trunc(file.mtimeMs)
+              )
+                throw new Error('文件已变化，请重新扫描');
+              if (normalizePathKey(target) === normalizePathKey(file.path))
+                throw new Error('已在目标文件夹，无需移动');
+              const { name, ext } = path.parse(file.name);
+              let suffix = 0;
+              while (fs.existsSync(target) || reserved.has(normalizePathKey(target))) {
+                suffix += 1;
+                if (suffix > 10000) throw new Error('目标同名文件过多');
+                target = path.join(state.dir, `${name} (${suffix})${ext}`);
+              }
+              reserved.add(normalizePathKey(target));
+              item.target = target;
+              item.crossDrive =
+                getDriveLetter(file.path) !== getDriveLetter(target) || before.dev !== state.dev;
+              if (item.crossDrive) this.checkRecycle(file.path, file.size);
+              item.allowed = true;
+              item.message = item.crossDrive
+                ? '跨盘：复制校验后回收原件，须确认'
+                : '同盘：直接移动，不重写文件内容';
+              entries.push({ item, before, parent: rootStat, createDir: state.dir });
+            } catch (error) {
+              item.message = error instanceof Error ? error.message : String(error);
             }
-            reserved.add(normalizePathKey(target));
-            item.target = target;
-            item.crossDrive =
-              getDriveLetter(file.path) !== getDriveLetter(target) || before.dev !== state.dev;
-            if (item.crossDrive) this.checkRecycle(file.path, file.size);
-            item.allowed = true;
-            item.message = item.crossDrive
-              ? '跨盘：复制校验后回收原件，须确认'
-              : '同盘：直接移动，不重写文件内容';
-            entries.push({ item, before, parent: rootStat, createDir: state.dir });
-          } catch (error) {
-            item.message = error instanceof Error ? error.message : String(error);
+            if (items.length > ORGANIZE_MATCH_LIMIT) throw new Error(TOO_MANY_MATCHES);
           }
-          if (items.length > MAX_PREVIEW_MATCHES) throw new Error(TOO_MANY_MATCHES);
-        }
-      });
+        });
+      }
       const token = randomUUID();
       this.preview = { token, scanId, entries };
       return { token, items };

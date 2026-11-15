@@ -28,6 +28,8 @@ import { formatBytes } from '@shared/format';
 import {
   createPresetRule,
   DEFAULT_SMART_CATEGORIES,
+  MAX_ORGANIZE_SOURCES,
+  ORGANIZE_MATCH_LIMIT,
   ORGANIZE_PRESETS,
   SMART_CATEGORIES,
   SMART_CATEGORY_LABELS,
@@ -51,7 +53,7 @@ export default function OrganizePage(): React.JSX.Element {
   const [rules, setRules] = useState<OrganizeRule[]>(() =>
     structuredClone(settings?.organizeRules ?? []),
   );
-  const [sourceDir, setSourceDir] = useState('');
+  const [sourceDirs, setSourceDirs] = useState<string[]>([]);
   const [mode, setMode] = useState<'rules' | 'smart'>('rules');
   const [smartTargetRoot, setSmartTargetRoot] = useState('');
   const [smartCategories, setSmartCategories] = useState<SmartCategory[]>(DEFAULT_SMART_CATEGORIES);
@@ -155,12 +157,21 @@ export default function OrganizePage(): React.JSX.Element {
       if (!directory) return;
       if (ruleId) changeRule(ruleId, { targetDir: directory });
       else {
-        setSourceDir(directory);
+        const key = directory.replace(/\\+$/, '').toLowerCase();
+        setSourceDirs((current) =>
+          current.some((dir) => dir.replace(/\\+$/, '').toLowerCase() === key)
+            ? current
+            : [...current, directory],
+        );
         invalidate();
       }
     } catch (cause) {
       setError(describeError(cause));
     }
+  }
+  function removeSource(target: string): void {
+    setSourceDirs((current) => current.filter((dir) => dir !== target));
+    invalidate();
   }
   async function chooseSmartTarget(): Promise<void> {
     try {
@@ -206,7 +217,7 @@ export default function OrganizePage(): React.JSX.Element {
     setError('');
     invalidate();
     try {
-      setPreview(await window.api.previewOrganize({ sourceDir, rules, priority }));
+      setPreview(await window.api.previewOrganize({ sourceDirs, rules, priority }));
       setVisibleCount(ORGANIZE_PREVIEW_BATCH);
     } catch (cause) {
       setError(describeError(cause));
@@ -221,7 +232,7 @@ export default function OrganizePage(): React.JSX.Element {
     try {
       setPreview(
         await window.api.previewSmartOrganize({
-          sourceDir,
+          sourceDirs,
           targetRoot: smartTargetRoot,
           categories: smartCategories,
         }),
@@ -295,20 +306,35 @@ export default function OrganizePage(): React.JSX.Element {
         <Card title="1. 整理范围">
           <Space direction="vertical" style={{ width: '100%' }}>
             <Button
-              disabled={locked}
+              disabled={locked || sourceDirs.length >= MAX_ORGANIZE_SOURCES}
               icon={<FolderOpenOutlined aria-hidden />}
               onClick={() => void chooseDirectory()}
             >
               选择来源文件夹
             </Button>
-            <Input
-              readOnly
-              aria-label="整理来源"
-              value={sourceDir}
-              placeholder="选择任一本地盘上的文件夹，包含其子目录"
-            />
+            {sourceDirs.length === 0 ? (
+              <Input
+                readOnly
+                aria-label="整理来源"
+                value=""
+                placeholder="可多次选择，添加多个本地盘上的文件夹，包含各自子目录"
+              />
+            ) : (
+              <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                {sourceDirs.map((dir) => (
+                  <Space.Compact key={dir} style={{ width: '100%' }}>
+                    <Input readOnly aria-label="整理来源" value={dir} />
+                    <Button aria-label="移除来源" disabled={locked} onClick={() => removeSource(dir)}>
+                      移除
+                    </Button>
+                  </Space.Compact>
+                ))}
+              </Space>
+            )}
             <Typography.Text type="secondary">
-              整盘会分批匹配，最多预览 10000 个命中规则的文件；超过时请缩小来源或规则范围。
+              已添加 {sourceDirs.length} 个来源（最多 {MAX_ORGANIZE_SOURCES}
+              个），嵌套目录只算一次；整盘会分批匹配，最多预览 {ORGANIZE_MATCH_LIMIT}
+              个命中规则的文件，超过时请缩小来源或规则范围。
             </Typography.Text>
           </Space>
         </Card>
@@ -371,8 +397,8 @@ export default function OrganizePage(): React.JSX.Element {
           >
             <Typography.Paragraph type="secondary">
               类型、扩展名、文件名包含、文件名格式、大小、时间和路径等条件可按“全部满足 /
-              任一满足”组合；留空的条件不参与匹配，全部留空时匹配全部文件。文件名格式用
-              X 表示任意一个字符，其余字符按字面匹配，例如 XX-XXX（2 个字 + 横线 + 3
+              任一满足”组合；留空的条件不参与匹配，全部留空时匹配全部文件。文件名格式用 X
+              表示任意一个字符，其余字符按字面匹配，例如 XX-XXX（2 个字 + 横线 + 3
               个字）；匹配方式可选完整匹配（整段名字必须对上）或包含匹配（名字任意位置出现即可），
               不区分大小写、全角半角和横线写法。命中多条规则时按上方“规则优先级”选择：按规则顺序取第一条，或同盘优先。所有规则指向同一个目标即可集中归档。“添加预设”可一键加入视频、图片、文档、音乐、压缩包、安装包规则，添加后只需选择目标文件夹。
             </Typography.Paragraph>
@@ -508,9 +534,7 @@ export default function OrganizePage(): React.JSX.Element {
                             { value: 'exact', label: '完整匹配' },
                             { value: 'contains', label: '包含匹配' },
                           ]}
-                          onChange={(namePatternMode) =>
-                            changeRule(rule.id, { namePatternMode })
-                          }
+                          onChange={(namePatternMode) => changeRule(rule.id, { namePatternMode })}
                         />
                         <Typography.Text type="secondary">
                           X = 任意一个字符（含汉字）；全角半角、横线写法不区分
@@ -643,7 +667,7 @@ export default function OrganizePage(): React.JSX.Element {
               aria-label="生成整理预览"
               disabled={
                 locked ||
-                !sourceDir ||
+                sourceDirs.length === 0 ||
                 (mode === 'smart'
                   ? !smartTargetRoot || smartCategories.length === 0
                   : rules.length === 0)
