@@ -41,6 +41,7 @@ describe('归类整理预设规则', () => {
       type: 'video',
       extensions: [],
       nameContains: '',
+      namePattern: '',
       targetDir: '',
       minSize: null,
       maxSize: null,

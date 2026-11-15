@@ -20,6 +20,7 @@ const rule: OrganizeRule = {
   type: 'document',
   extensions: ['pdf'],
   nameContains: 'report',
+  namePattern: '',
   targetDir: 'D:\\文档',
   minSize: null,
   maxSize: null,
@@ -117,6 +118,7 @@ describe('organize rules and IPC boundary', () => {
       type: 'all',
       extensions: [],
       nameContains: '',
+      namePattern: '',
       targetDir: 'C:\\归类',
     };
     expect(ruleMatchesFile(sizedFile, { ...base, minSize: 1 * MB, maxSize: 10 * MB })).toBe(true);
@@ -156,6 +158,62 @@ describe('organize rules and IPC boundary', () => {
     expect(ruleMatchesFile(sizedFile, base)).toBe(true);
   });
 
+  it('matches filename patterns with X as any character and tolerant symbols', () => {
+    const base: OrganizeRule = {
+      ...rule,
+      type: 'all',
+      extensions: [],
+      nameContains: '',
+      targetDir: 'C:\\归类',
+    };
+    const matches = (name: string, namePattern: string): boolean =>
+      ruleMatchesFile({ ...sizedFile, name }, { ...base, namePattern });
+
+    for (const name of ['AB-123.pdf', '空调-说明书.docx']) {
+      expect(matches(name, 'XX-XXX')).toBe(true);
+    }
+    for (const name of ['AB-1234.pdf', 'AB-123-备份.pdf', '我AB-123.pdf', 'AB-12.pdf']) {
+      expect(matches(name, 'XX-XXX')).toBe(false);
+    }
+
+    expect(matches('空调1-说明书.docx', 'XXX-XXX')).toBe(true);
+    expect(matches('ABC-123.pdf', 'XXX-XXX')).toBe(true);
+    expect(matches('AB-123.pdf', 'XXX-XXX')).toBe(false);
+    expect(matches('A_2024.pdf', 'X_XXXX')).toBe(true);
+    expect(matches('A-2024.pdf', 'X_XXXX')).toBe(false);
+    expect(matches('2024.pdf', 'XXXX')).toBe(true);
+    expect(matches('报告合集.pdf', 'XXXX')).toBe(true);
+    expect(matches('AB-123.pdf', 'XXXX')).toBe(false);
+    expect(matches('AB--12.pdf', 'XX--XX')).toBe(true);
+    expect(matches('AB-12.pdf', 'XX--XX')).toBe(false);
+
+    expect(matches('ab-123.pdf', 'AB-123')).toBe(true);
+    expect(matches('ＡＢ-１２３.pdf', 'XX-XXX')).toBe(true);
+    expect(matches('AB－123.pdf', 'XX-XXX')).toBe(true);
+    expect(matches('AB–123.pdf', 'XX-XXX')).toBe(true);
+    expect(matches('AB—123.pdf', 'XX-XXX')).toBe(true);
+    expect(matches('AB_123.pdf', 'XX-XXX')).toBe(false);
+
+    expect(matches('AB-123.tar.gz', 'XX-XXX')).toBe(true);
+    expect(matches('AB-1234.tar.gz', 'XX-XXX')).toBe(false);
+
+    expect(matches('任意名字', '')).toBe(true);
+    expect(matches('AB-1234.pdf', '')).toBe(true);
+
+    expect(
+      ruleMatchesFile(
+        { ...sizedFile, name: 'AB-123.pdf' },
+        { ...base, type: 'video', namePattern: 'XX-XXX' },
+      ),
+    ).toBe(false);
+    expect(
+      ruleMatchesFile(
+        { ...sizedFile, name: 'AB-123.pdf' },
+        { ...base, type: 'video', namePattern: 'XX-XXX', matchMode: 'any' },
+      ),
+    ).toBe(true);
+  });
+
   it('fills defaults for legacy rules and rejects invalid ranges', () => {
     const parsed = organizeRuleSchema.parse({
       id: rule.id,
@@ -171,6 +229,7 @@ describe('organize rules and IPC boundary', () => {
     expect(parsed.mtimeFrom).toBeNull();
     expect(parsed.mtimeTo).toBeNull();
     expect(parsed.pathContains).toBe('');
+    expect(parsed.namePattern).toBe('');
     expect(parsed.matchMode).toBe('all');
 
     expect(organizeRuleSchema.safeParse({ ...rule, minSize: 20, maxSize: 10 }).success).toBe(false);
@@ -178,6 +237,12 @@ describe('organize rules and IPC boundary', () => {
       false,
     );
     expect(organizeRuleSchema.safeParse({ ...rule, matchMode: 'neither' }).success).toBe(false);
+    expect(organizeRuleSchema.parse({ ...rule, namePattern: '  XX-XXX  ' }).namePattern).toBe(
+      'XX-XXX',
+    );
+    expect(organizeRuleSchema.safeParse({ ...rule, namePattern: 'x'.repeat(121) }).success).toBe(
+      false,
+    );
   });
 
   it('maps file types to smart categories and validates smart preview input', () => {

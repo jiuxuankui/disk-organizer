@@ -28,6 +28,7 @@ const makeRule = (targetDir: string): OrganizeRule => ({
   type: 'all',
   extensions: [],
   nameContains: '',
+  namePattern: '',
   targetDir,
   minSize: null,
   maxSize: null,

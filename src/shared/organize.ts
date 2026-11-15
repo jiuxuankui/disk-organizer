@@ -27,6 +27,7 @@ export const organizeRuleSchema = z
       )
       .max(50),
     nameContains: z.string().trim().max(120),
+    namePattern: z.string().trim().max(120).default(''),
     targetDir: localOrganizePath,
     minSize: z.number().int().min(0).nullable().default(null),
     maxSize: z.number().int().min(0).nullable().default(null),
@@ -190,6 +191,7 @@ export function createPresetRule(
     type: preset.type,
     extensions: [...preset.extensions],
     nameContains: preset.nameContains,
+    namePattern: '',
     targetDir: '',
     minSize: null,
     maxSize: null,

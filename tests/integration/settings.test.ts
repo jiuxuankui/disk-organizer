@@ -119,11 +119,24 @@ describe('settings persistence', () => {
         excludedPaths: [],
         skipHiddenSystem: true,
         autoBackup: true,
-        organizeRules: [],
+        organizeRules: [
+          {
+            id: 'dbb71d18-ab33-4a49-97ae-fcd4b035720b',
+            name: '旧规则',
+            enabled: true,
+            type: 'document',
+            extensions: ['pdf'],
+            nameContains: 'report',
+            targetDir: 'D:\\文档',
+            matchMode: 'all',
+          },
+        ],
       }),
     );
     const service = new SettingsService(filePath);
-    expect(service.load().organizePriority).toBe('order');
+    const loaded = service.load();
+    expect(loaded.organizePriority).toBe('order');
+    expect(loaded.organizeRules[0].namePattern).toBe('');
 
     const updated = service.update({ organizePriority: 'sameDrive' });
     expect(updated.organizePriority).toBe('sameDrive');
