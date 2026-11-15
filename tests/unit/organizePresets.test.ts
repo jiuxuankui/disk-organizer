@@ -42,6 +42,7 @@ describe('归类整理预设规则', () => {
       extensions: [],
       nameContains: '',
       namePattern: '',
+      namePatternMode: 'exact',
       targetDir: '',
       minSize: null,
       maxSize: null,

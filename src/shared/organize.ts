@@ -28,6 +28,7 @@ export const organizeRuleSchema = z
       .max(50),
     nameContains: z.string().trim().max(120),
     namePattern: z.string().trim().max(120).default(''),
+    namePatternMode: z.enum(['exact', 'contains']).default('exact'),
     targetDir: localOrganizePath,
     minSize: z.number().int().min(0).nullable().default(null),
     maxSize: z.number().int().min(0).nullable().default(null),
@@ -69,6 +70,7 @@ export const organizeStartSchema = z
   })
   .strict();
 export type OrganizeRule = z.infer<typeof organizeRuleSchema>;
+export type OrganizeNamePatternMode = OrganizeRule['namePatternMode'];
 export type OrganizePreviewRequest = z.infer<typeof organizePreviewSchema>;
 export type OrganizeStartRequest = z.infer<typeof organizeStartSchema>;
 
@@ -192,6 +194,7 @@ export function createPresetRule(
     extensions: [...preset.extensions],
     nameContains: preset.nameContains,
     namePattern: '',
+    namePatternMode: 'exact',
     targetDir: '',
     minSize: null,
     maxSize: null,

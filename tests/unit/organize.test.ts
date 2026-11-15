@@ -21,6 +21,7 @@ const rule: OrganizeRule = {
   extensions: ['pdf'],
   nameContains: 'report',
   namePattern: '',
+  namePatternMode: 'exact',
   targetDir: 'D:\\文档',
   minSize: null,
   maxSize: null,
@@ -214,6 +215,42 @@ describe('organize rules and IPC boundary', () => {
     ).toBe(true);
   });
 
+  it('matches pattern anywhere in the name when mode is contains', () => {
+    const base: OrganizeRule = {
+      ...rule,
+      type: 'all',
+      extensions: [],
+      nameContains: '',
+      targetDir: 'C:\\归类',
+      namePatternMode: 'contains',
+    };
+    const matches = (name: string, namePattern: string): boolean =>
+      ruleMatchesFile({ ...sizedFile, name }, { ...base, namePattern });
+
+    expect(matches('会议 AB-123 备份.pdf', 'XX-XXX')).toBe(true);
+    expect(matches('AB-123.pdf', 'XX-XXX')).toBe(true);
+    expect(matches('AB-1234.pdf', 'XX-XXX')).toBe(true);
+    expect(matches('AB-12.pdf', 'XX-XXX')).toBe(false);
+    expect(matches('AB_123.pdf', 'XX-XXX')).toBe(false);
+    expect(matches('会议 ab－123 备份.pdf', 'XX-XXX')).toBe(true);
+    expect(matches('ＡＢ–１２３ 附件.pdf', 'XX-XXX')).toBe(true);
+    expect(matches('XA_2024 汇总.pdf', 'X_XXXX')).toBe(true);
+    expect(matches('任意名字.pdf', '')).toBe(true);
+
+    expect(
+      ruleMatchesFile(
+        { ...sizedFile, name: '会议 AB-123 备份.pdf' },
+        { ...base, namePattern: 'XX-XXX', type: 'video' },
+      ),
+    ).toBe(false);
+    expect(
+      ruleMatchesFile(
+        { ...sizedFile, name: '会议 AB-123 备份.pdf' },
+        { ...base, namePattern: 'XX-XXX', type: 'video', matchMode: 'any' },
+      ),
+    ).toBe(true);
+  });
+
   it('fills defaults for legacy rules and rejects invalid ranges', () => {
     const parsed = organizeRuleSchema.parse({
       id: rule.id,
@@ -230,6 +267,7 @@ describe('organize rules and IPC boundary', () => {
     expect(parsed.mtimeTo).toBeNull();
     expect(parsed.pathContains).toBe('');
     expect(parsed.namePattern).toBe('');
+    expect(parsed.namePatternMode).toBe('exact');
     expect(parsed.matchMode).toBe('all');
 
     expect(organizeRuleSchema.safeParse({ ...rule, minSize: 20, maxSize: 10 }).success).toBe(false);
@@ -240,6 +278,12 @@ describe('organize rules and IPC boundary', () => {
     expect(organizeRuleSchema.parse({ ...rule, namePattern: '  XX-XXX  ' }).namePattern).toBe(
       'XX-XXX',
     );
+    expect(
+      organizeRuleSchema.parse({ ...rule, namePatternMode: 'contains' }).namePatternMode,
+    ).toBe('contains');
+    expect(
+      organizeRuleSchema.safeParse({ ...rule, namePatternMode: 'anywhere' }).success,
+    ).toBe(false);
     expect(organizeRuleSchema.safeParse({ ...rule, namePattern: 'x'.repeat(121) }).success).toBe(
       false,
     );

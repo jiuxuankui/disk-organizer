@@ -4,7 +4,12 @@ import { createHash } from 'node:crypto';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { FileRecord } from '@shared/types';
-import { localOrganizePath, type OrganizePriority, type OrganizeRule } from '@shared/organize';
+import {
+  localOrganizePath,
+  type OrganizeNamePatternMode,
+  type OrganizePriority,
+  type OrganizeRule,
+} from '@shared/organize';
 import { DEFAULT_EXCLUDED_PATHS, SYSTEM_EXCLUDED_DIR_NAMES } from '@shared/constants';
 import { getDriveLetter, isSameOrSubPath, normalizePathKey } from './filesystem';
 import { moveFileNoReplace, readFileAttributes } from './windowsService';
@@ -16,10 +21,14 @@ function normalizeForMatch(value: string): string {
   return value.normalize('NFKC').toLowerCase().replace(DASH_VARIANTS, '-');
 }
 
-export function compileNamePattern(pattern: string): RegExp | null {
+export function compileNamePattern(
+  pattern: string,
+  mode: OrganizeNamePatternMode = 'exact',
+): RegExp | null {
   const key = pattern.trim();
   if (key === '') return null;
-  const cached = patternCache.get(key);
+  const cacheKey = `${mode}\u0000${key}`;
+  const cached = patternCache.get(cacheKey);
   if (cached !== undefined) return cached;
   let source = '';
   for (const character of normalizeForMatch(key)) {
@@ -27,12 +36,12 @@ export function compileNamePattern(pattern: string): RegExp | null {
   }
   let compiled: RegExp | null = null;
   try {
-    compiled = new RegExp(`^${source}$`, 'u');
+    compiled = new RegExp(mode === 'contains' ? source : `^${source}$`, 'u');
   } catch {
     compiled = null;
   }
   if (patternCache.size >= 500) patternCache.clear();
-  patternCache.set(key, compiled);
+  patternCache.set(cacheKey, compiled);
   return compiled;
 }
 
@@ -55,7 +64,7 @@ export function ruleMatchesFile(file: FileRecord, rule: OrganizeRule): boolean {
   if (rule.nameContains.trim() !== '')
     tests.push(() => file.name.toLowerCase().includes(rule.nameContains.trim().toLowerCase()));
   if (rule.namePattern.trim() !== '') {
-    const pattern = compileNamePattern(rule.namePattern);
+    const pattern = compileNamePattern(rule.namePattern, rule.namePatternMode);
     if (pattern) tests.push(() => namePatternMatches(file.name, pattern));
   }
   if (rule.minSize !== null || rule.maxSize !== null) {

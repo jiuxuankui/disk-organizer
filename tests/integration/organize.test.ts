@@ -31,6 +31,7 @@ const makeRule = (targetDir: string): OrganizeRule => ({
   extensions: [],
   nameContains: '',
   namePattern: '',
+  namePatternMode: 'exact',
   targetDir,
   minSize: null,
   maxSize: null,
@@ -328,6 +329,20 @@ describe('safe file organization', () => {
     expect(fs.readdirSync(s.cross)).toEqual(['untouched.txt']);
     expect(fs.statSync(file.file).size).toBe(32 * 1024 * 1024 + 7);
   }, 30000);
+  it('包含匹配只归档名字中任意位置出现该格式的文件', async () => {
+    const s = setup();
+    const hit = s.insert('会议 AB-123 备份.txt');
+    s.insert('AB-12.txt');
+    const preview = await s.job.plan({
+      sourceDir: s.sourceDir,
+      rules: [
+        { ...makeRule(s.output), namePattern: 'XX-XXX', namePatternMode: 'contains' },
+      ],
+      priority: 'order',
+    });
+    expect(preview.items.map((item) => item.id)).toEqual([hit.id]);
+    expect(preview.items[0].allowed).toBe(true);
+  });
   it('allows system-attribute directories but still rejects system-attribute files', () => {
     const s = setup();
     execFileSync('attrib', ['+s', s.sourceDir]);

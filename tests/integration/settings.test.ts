@@ -137,6 +137,7 @@ describe('settings persistence', () => {
     const loaded = service.load();
     expect(loaded.organizePriority).toBe('order');
     expect(loaded.organizeRules[0].namePattern).toBe('');
+    expect(loaded.organizeRules[0].namePatternMode).toBe('exact');
 
     const updated = service.update({ organizePriority: 'sameDrive' });
     expect(updated.organizePriority).toBe('sameDrive');

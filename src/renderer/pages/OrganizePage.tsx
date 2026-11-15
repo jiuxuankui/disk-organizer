@@ -348,6 +348,7 @@ export default function OrganizePage(): React.JSX.Element {
                         extensions: [],
                         nameContains: '',
                         namePattern: '',
+                        namePatternMode: 'exact',
                         targetDir: '',
                         minSize: null,
                         maxSize: null,
@@ -372,7 +373,8 @@ export default function OrganizePage(): React.JSX.Element {
               类型、扩展名、文件名包含、文件名格式、大小、时间和路径等条件可按“全部满足 /
               任一满足”组合；留空的条件不参与匹配，全部留空时匹配全部文件。文件名格式用
               X 表示任意一个字符，其余字符按字面匹配，例如 XX-XXX（2 个字 + 横线 + 3
-              个字），不区分大小写、全角半角和横线写法。命中多条规则时按上方“规则优先级”选择：按规则顺序取第一条，或同盘优先。所有规则指向同一个目标即可集中归档。“添加预设”可一键加入视频、图片、文档、音乐、压缩包、安装包规则，添加后只需选择目标文件夹。
+              个字）；匹配方式可选完整匹配（整段名字必须对上）或包含匹配（名字任意位置出现即可），
+              不区分大小写、全角半角和横线写法。命中多条规则时按上方“规则优先级”选择：按规则顺序取第一条，或同盘优先。所有规则指向同一个目标即可集中归档。“添加预设”可一键加入视频、图片、文档、音乐、压缩包、安装包规则，添加后只需选择目标文件夹。
             </Typography.Paragraph>
             <Space align="center" wrap>
               <Typography.Text>命中多条规则时：</Typography.Text>
@@ -495,6 +497,19 @@ export default function OrganizePage(): React.JSX.Element {
                           style={{ width: 240 }}
                           onChange={(event) =>
                             changeRule(rule.id, { namePattern: event.target.value })
+                          }
+                        />
+                        <Select
+                          aria-label="文件名格式匹配方式"
+                          value={rule.namePatternMode}
+                          disabled={locked}
+                          style={{ width: 110 }}
+                          options={[
+                            { value: 'exact', label: '完整匹配' },
+                            { value: 'contains', label: '包含匹配' },
+                          ]}
+                          onChange={(namePatternMode) =>
+                            changeRule(rule.id, { namePatternMode })
                           }
                         />
                         <Typography.Text type="secondary">
