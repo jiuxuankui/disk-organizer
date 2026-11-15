@@ -8,6 +8,15 @@ import {
   normalizePathKey,
 } from '../services/filesystem';
 
+function invalidateDuplicateResults(db: DatabaseSync, scanId: number): void {
+  db.prepare(
+    "UPDATE duplicate_runs SET status = 'stale', total_groups = 0, total_files = 0, reclaimable_bytes = 0 WHERE scan_id = ?",
+  ).run(scanId);
+  db.prepare(
+    'DELETE FROM duplicate_groups WHERE run_id IN (SELECT id FROM duplicate_runs WHERE scan_id = ?)',
+  ).run(scanId);
+}
+
 export function updateOrganizedFolder(
   db: DatabaseSync,
   scanId: number,
@@ -49,6 +58,11 @@ export function updateOrganizedFolder(
          ELSE '' END
        WHERE scan_id = ? AND substr(path_key, 1, ?) = ?`,
     ).run(scanId, targetPrefix.length, targetPrefix);
+    db.prepare('DELETE FROM hash_cache WHERE path_key = ? OR path_key LIKE ?').run(
+      sourceKey,
+      `${sourceKey}\\%`,
+    );
+    invalidateDuplicateResults(db, scanId);
     db.exec('COMMIT');
     return Number(moved.changes);
   } catch (error) {
@@ -94,6 +108,11 @@ export function updateOrganizedFile(
         normalizePathKey(source),
       );
     if (Number(result.changes) !== 1) throw new Error('文件索引已变化');
+    db.prepare('DELETE FROM hash_cache WHERE path_key IN (?, ?)').run(
+      normalizePathKey(source),
+      normalizePathKey(target),
+    );
+    invalidateDuplicateResults(db, scanId);
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');

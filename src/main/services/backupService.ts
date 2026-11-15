@@ -192,6 +192,22 @@ export class BackupService {
     }
   }
 
+  private markDuplicatesStale(): void {
+    let restored: DatabaseSync | null = null;
+    try {
+      restored = new DatabaseSync(this.dbPath);
+      restored.exec("UPDATE duplicate_runs SET status = 'stale' WHERE status <> 'stale'");
+    } catch {
+      // The index itself was restored; duplicate results can be recomputed.
+    } finally {
+      try {
+        restored?.close();
+      } catch {
+        // Ignore close failures on the temporary handle.
+      }
+    }
+  }
+
   private settingsPathFor(entry: BackupFileInfo): string | null {
     if (entry.settingsPath && fs.existsSync(entry.settingsPath)) return entry.settingsPath;
     return null;
@@ -216,6 +232,7 @@ export class BackupService {
       // The rename below surfaces a meaningful error if the file is still locked.
     }
     fs.renameSync(temp, this.dbPath);
+    this.markDuplicatesStale();
     const settings = this.settingsPathFor(entry);
     if (settings) fs.copyFileSync(settings, this.settingsPath);
   }

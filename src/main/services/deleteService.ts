@@ -15,9 +15,11 @@ import { getDriveLetter, isSameOrSubPath, toExtendedPath } from './filesystem';
 import {
   applyDeletedFileRows,
   applyDeletedFolders,
+  countAllDeletedGroups,
   folderStats,
   listDeleteFileRows,
 } from '../db/deleteRepo';
+import { getLatestDuplicateRun } from '../db/duplicatesRepo';
 import { getActiveScanId } from '../db/scansRepo';
 import { readFileAttributes } from './windowsService';
 
@@ -376,6 +378,16 @@ export class DeleteService {
     const fileNames = [...okFiles, ...longPathFiles]
       .slice(0, PREVIEW_NAME_LIMIT)
       .map((item) => item.name);
+    const run = getLatestDuplicateRun(this.db);
+    const groupsAllDeleted =
+      run && run.status === 'completed'
+        ? countAllDeletedGroups(
+            this.db,
+            run.id,
+            [...okFiles, ...longPathFiles].map((item) => item.id),
+            okFolders.map((item) => item.path),
+          )
+        : 0;
     return {
       total: files.length + folders.length,
       okCount: okFiles.length,
@@ -397,6 +409,7 @@ export class DeleteService {
           ? null
           : (recycleBlocked[0].message ?? 'Windows 回收站当前不可用，删除功能已暂停'),
       canDelete: okFiles.length + longPathFiles.length + okFolders.length > 0,
+      groupsAllDeleted,
     };
   }
 
@@ -538,15 +551,19 @@ export class DeleteService {
 
     const scanId = getActiveScanId(this.db);
     if (scanId !== null) {
+      const run = getLatestDuplicateRun(this.db);
+      const runId =
+        run && run.status === 'completed' && run.scanId === scanId ? run.id : null;
       try {
         if (succeededFiles.length > 0) {
-          applyDeletedFileRows(this.db, scanId, succeededFiles);
+          applyDeletedFileRows(this.db, scanId, succeededFiles, runId);
         }
         if (succeededFolders.length > 0) {
           applyDeletedFolders(
             this.db,
             scanId,
             succeededFolders.map((folder) => folder.path),
+            runId,
           );
         }
       } catch (error) {

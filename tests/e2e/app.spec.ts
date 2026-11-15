@@ -235,6 +235,29 @@ test('全部文件页支持筛选、搜索和详情抽屉', async () => {
   await expect(page.locator('.ant-drawer-content')).toBeHidden();
 });
 
+test('重复文件页支持范围与模式选择，完整比对后显示重复组', async () => {
+  await navTo('重复文件');
+  await expect(page.locator('.dup-scope-box')).toBeVisible();
+  await page.getByText('按硬盘查找', { exact: true }).click();
+  await page.locator('.dup-mode-select').click();
+  await page.locator('.ant-select-item-option', { hasText: '完整比对' }).click();
+  await page.getByRole('button', { name: '开始查找', exact: true }).click();
+
+  await expect(page.locator('.dup-group')).toHaveCount(1, { timeout: 60000 });
+  await expect(page.locator('.dup-group')).toContainText('3 个文件');
+  await page.locator('.dup-group-head').click();
+  await expect(page.locator('.dup-member')).toHaveCount(3);
+  await expect(page.locator('.dup-member-name', { hasText: 'cat-a.jpg' })).toBeVisible();
+
+  await page.locator('.dup-mode-select').click();
+  await page.locator('.ant-select-item-option', { hasText: '仅文件名' }).click();
+  await page.getByRole('button', { name: '重新查找', exact: true }).click();
+  await expect(page.locator('.dup-list .ant-empty')).toContainText('没有发现可清理的重复文件', {
+    timeout: 60000,
+  });
+  await navTo('全部文件');
+});
+
 test('删除预览默认取消，确认后进入假回收站并刷新列表', async () => {
   const deleteMe = path.join(fixtureRoot, 'delete-me.bin');
   const row = page.locator('.files-panel .ant-table-row', { hasText: 'delete-me.bin' });

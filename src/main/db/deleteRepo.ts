@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { normalizePathKey } from '../services/filesystem';
+import { listAffectedGroupIds, reconcileDuplicateRunAfterDelete } from './duplicatesRepo';
 
 export interface DeleteFileRow {
   id: number;
@@ -42,15 +43,51 @@ export function listDeleteFileRows(
   return rows;
 }
 
+export function countAllDeletedGroups(
+  db: DatabaseSync,
+  runId: number | null,
+  requestedIds: number[],
+  folderPaths: string[] = [],
+): number {
+  if (runId === null) return 0;
+  if (requestedIds.length === 0 && folderPaths.length === 0) return 0;
+  const requested = new Set(requestedIds);
+  const prefixes = folderPaths.map(folderPrefix);
+  const rows = db
+    .prepare(
+      `SELECT m.group_id, m.file_id, m.path
+       FROM duplicate_members m
+       WHERE m.group_id IN (SELECT id FROM duplicate_groups WHERE run_id = ?)`,
+    )
+    .all(runId) as Array<{ group_id: number; file_id: number; path: string }>;
+  const grouped = new Map<number, boolean[]>();
+  for (const row of rows) {
+    const pathKey = normalizePathKey(row.path);
+    const covered =
+      requested.has(row.file_id) || prefixes.some((prefix) => pathKey.startsWith(prefix));
+    const list = grouped.get(row.group_id);
+    if (list) list.push(covered);
+    else grouped.set(row.group_id, [covered]);
+  }
+  let count = 0;
+  for (const covered of grouped.values()) {
+    if (covered.length > 0 && covered.every(Boolean)) count += 1;
+  }
+  return count;
+}
+
 export function applyDeletedFileRows(
   db: DatabaseSync,
   scanId: number,
   deleted: DeleteFileRow[],
+  runId: number | null = null,
 ): void {
   if (deleted.length === 0) return;
   db.exec('BEGIN IMMEDIATE');
   try {
     const ids = deleted.map((row) => row.id);
+    const groupIds = runId === null ? [] : listAffectedGroupIds(db, runId, ids);
+    const pathKeys = deleted.map((row) => row.path_key);
 
     for (const chunk of chunked(ids)) {
       const placeholders = chunk.map(() => '?').join(', ');
@@ -58,6 +95,10 @@ export function applyDeletedFileRows(
         scanId,
         ...chunk,
       );
+    }
+    for (const chunk of chunked(pathKeys)) {
+      const placeholders = chunk.map(() => '?').join(', ');
+      db.prepare(`DELETE FROM hash_cache WHERE path_key IN (${placeholders})`).run(...chunk);
     }
 
     const removedBytes = deleted.reduce((sum, row) => sum + Math.max(0, row.size), 0);
@@ -68,6 +109,7 @@ export function applyDeletedFileRows(
        WHERE id = ?`,
     ).run(removedBytes, deleted.length, scanId);
 
+    if (runId !== null) reconcileDuplicateRunAfterDelete(db, runId, groupIds);
     db.exec('COMMIT');
   } catch (error) {
     try {
@@ -95,17 +137,38 @@ export function folderStats(db: DatabaseSync, scanId: number, folderPath: string
   return { bytes: row?.bytes ?? 0, count: row?.count ?? 0 };
 }
 
-export function applyDeletedFolders(db: DatabaseSync, scanId: number, folders: string[]): void {
+export function applyDeletedFolders(
+  db: DatabaseSync,
+  scanId: number,
+  folders: string[],
+  runId: number | null = null,
+): void {
   if (folders.length === 0) return;
   db.exec('BEGIN IMMEDIATE');
   try {
+    const affected = new Set<number>();
     for (const folder of folders) {
       const prefix = folderPrefix(folder);
+      if (runId !== null) {
+        const rows = db
+          .prepare(
+            `SELECT id FROM files WHERE scan_id = ? AND substr(path_key, 1, ?) = ?`,
+          )
+          .all(scanId, prefix.length, prefix) as Array<{ id: number }>;
+        for (const groupId of listAffectedGroupIds(
+          db,
+          runId,
+          rows.map((row) => row.id),
+        )) {
+          affected.add(groupId);
+        }
+      }
       db.prepare('DELETE FROM files WHERE scan_id = ? AND substr(path_key, 1, ?) = ?').run(
         scanId,
         prefix.length,
         prefix,
       );
+      db.prepare('DELETE FROM hash_cache WHERE path_key LIKE ?').run(`${prefix}%`);
     }
     const totals = db
       .prepare(
@@ -118,6 +181,7 @@ export function applyDeletedFolders(db: DatabaseSync, scanId: number, folders: s
       totals.bytes,
       scanId,
     );
+    if (runId !== null) reconcileDuplicateRunAfterDelete(db, runId, [...affected]);
     db.exec('COMMIT');
   } catch (error) {
     try {

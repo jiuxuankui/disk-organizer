@@ -84,6 +84,7 @@ describe('settings persistence', () => {
       organizeRules: [],
       organizePriority: 'order',
       theme: 'classic',
+      minDuplicateSize: 1024 * 1024,
     });
   });
 
@@ -107,6 +108,27 @@ describe('settings persistence', () => {
         theme: 'not-a-theme',
       }),
     ).toMatchObject({ scanDrives: ['D:'], skipHiddenSystem: false, theme: 'classic' });
+  });
+
+  it('defaults and persists the duplicate minimum size', () => {
+    const { filePath } = tempSettings();
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({
+        scanDrives: ['C:'],
+        excludedPaths: [],
+        skipHiddenSystem: true,
+        autoBackup: true,
+      }),
+    );
+    const service = new SettingsService(filePath);
+    expect(service.load().minDuplicateSize).toBe(1024 * 1024);
+
+    service.update({ minDuplicateSize: 10 * 1024 * 1024 });
+    const second = new SettingsService(filePath);
+    expect(second.load().minDuplicateSize).toBe(10 * 1024 * 1024);
+    expect(() => service.update({ minDuplicateSize: -1 })).toThrow(/设置未保存/);
   });
 
   it('defaults organizePriority to order for legacy settings and persists changes', () => {

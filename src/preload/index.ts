@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from '@shared/ipcChannels';
-import type { DiskOrganizerApi, StartScanInput } from '@shared/api';
-import type { AppSettings, DeleteEvent, FileQuery, ScanEvent } from '@shared/types';
+import type { DiskOrganizerApi, DuplicateStartInput, StartScanInput } from '@shared/api';
+import type { AppSettings, DeleteEvent, DuplicateQuery, FileQuery, ScanEvent } from '@shared/types';
 
 const api: DiskOrganizerApi = {
   selectOrganizeDirectory: () => ipcRenderer.invoke(IPC.organizeDirectory),
@@ -34,6 +34,11 @@ const api: DiskOrganizerApi = {
   listFolderContents: (query) => ipcRenderer.invoke(IPC.filesFolderContents, query),
   getFile: (id: number) => ipcRenderer.invoke(IPC.filesGet, { id }),
   syncIndex: () => ipcRenderer.invoke(IPC.filesSyncIndex),
+  selectDuplicateDirectory: () => ipcRenderer.invoke(IPC.duplicatesDirectory),
+  getDuplicatesState: () => ipcRenderer.invoke(IPC.duplicatesState),
+  startDuplicates: (input: DuplicateStartInput) => ipcRenderer.invoke(IPC.duplicatesStart, input),
+  cancelDuplicates: () => ipcRenderer.invoke(IPC.duplicatesCancel),
+  queryDuplicateGroups: (query: DuplicateQuery) => ipcRenderer.invoke(IPC.duplicatesGroups, query),
   getScanState: () => ipcRenderer.invoke(IPC.scanGetState),
   startScan: (input: StartScanInput) => ipcRenderer.invoke(IPC.scanStart, input),
   pauseScan: () => ipcRenderer.invoke(IPC.scanPause),

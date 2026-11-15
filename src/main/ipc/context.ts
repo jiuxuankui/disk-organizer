@@ -4,6 +4,7 @@ import type { SettingsService } from '../services/settingsService';
 import type { DrivesService } from '../services/drivesService';
 import type { ScanService } from '../services/scanService';
 import type { OverviewService } from '../services/overviewService';
+import type { DuplicatesService } from '../services/duplicatesService';
 import type { DeleteService } from '../services/deleteService';
 import type { LongTrashService } from '../services/longTrashService';
 import type { BackupService } from '../services/backupService';
@@ -27,6 +28,7 @@ export interface IpcContext {
   drives: DrivesService;
   scan: ScanService;
   overview: OverviewService;
+  duplicates: DuplicatesService;
   deleteService: DeleteService;
   longTrash: LongTrashService;
   backup: BackupService;

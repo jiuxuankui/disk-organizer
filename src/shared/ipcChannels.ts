@@ -51,6 +51,13 @@ export const IPC = {
   filesFolderContents: 'files:folder-contents',
   filesSyncIndex: 'files:sync-index',
 
+  duplicatesDirectory: 'duplicates:directory',
+  duplicatesState: 'duplicates:state',
+  duplicatesStart: 'duplicates:start',
+  duplicatesCancel: 'duplicates:cancel',
+  duplicatesGroups: 'duplicates:groups',
+  duplicatesEvent: 'duplicates:event',
+
   deletePreview: 'delete:preview',
   deleteExecute: 'delete:execute',
   deleteCancel: 'delete:cancel',

@@ -17,6 +17,7 @@ import { SettingsService } from './services/settingsService';
 import { DrivesService } from './services/drivesService';
 import { ScanService } from './services/scanService';
 import { OverviewService } from './services/overviewService';
+import { DuplicatesService } from './services/duplicatesService';
 import { DeleteService } from './services/deleteService';
 import { LongTrashService } from './services/longTrashService';
 import { BackupService, quarantineDatabase } from './services/backupService';
@@ -24,6 +25,7 @@ import { DataService } from './services/dataService';
 import { readRecycleBinPolicy } from './services/recycleBinService';
 import { createFakeRecyclePolicy, createFakeTrashItem, readDevOverrides } from './devOverrides';
 import { createScanWorker } from './services/scanWorkerFactory';
+import { createHashRunner } from './services/hashWorkerFactory';
 
 function formatBackupTime(timestamp: number): string {
   return new Date(timestamp).toLocaleString('zh-CN');
@@ -103,6 +105,7 @@ if (!app.requestSingleInstanceLock()) {
   let mainWindow: BrowserWindow | null = null;
   let db: DatabaseSync | null = null;
   let scan: ScanService | null = null;
+  let duplicates: DuplicatesService | null = null;
   let deleteService: DeleteService | null = null;
   let video: VideoService | null = null;
   let archive: ArchiveService | null = null;
@@ -182,6 +185,13 @@ if (!app.requestSingleInstanceLock()) {
     scan = scanService;
 
     const overview = new OverviewService({ db, drives });
+    const duplicatesService = new DuplicatesService({
+      db,
+      getDefaultMinSize: () => settings.get().minDuplicateSize,
+      runnerFactory: createHashRunner,
+    });
+    duplicatesService.recover();
+    duplicates = duplicatesService;
     const backupService = new BackupService({
       db,
       dbPath: paths.dbPath,
@@ -230,7 +240,10 @@ if (!app.requestSingleInstanceLock()) {
       db,
       drives,
       isBusy: () =>
-        scanService.isScanning() || deleteSvc.isRunning() || organizeService.isRunning(),
+        scanService.isScanning() ||
+        deleteSvc.isRunning() ||
+        organizeService.isRunning() ||
+        duplicatesService.isRunning(),
     });
 
     registerIpc({
@@ -244,6 +257,7 @@ if (!app.requestSingleInstanceLock()) {
       drives,
       scan: scanService,
       overview,
+      duplicates: duplicatesService,
       deleteService: deleteSvc,
       longTrash,
       backup: backupService,
@@ -318,6 +332,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', (event) => {
     if (
       (scan?.isBusy() ||
+        duplicates?.isRunning() ||
         deleteService?.isRunning() ||
         video?.isRunning() ||
         archive?.isRunning() ||
@@ -327,12 +342,14 @@ if (!app.requestSingleInstanceLock()) {
       event.preventDefault();
       quittingAfterScan = true;
       scan?.cancel();
+      duplicates?.cancel();
       deleteService?.cancel();
       video?.cancel();
       archive?.cancel();
       organize?.cancel();
       void Promise.all([
         scan?.whenIdle(),
+        duplicates?.whenIdle(),
         deleteService?.whenIdle(),
         video?.whenIdle(),
         archive?.whenIdle(),

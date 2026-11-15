@@ -8,6 +8,10 @@ import type {
   DeletePreview,
   DeleteProgress,
   DriveInfo,
+  DuplicateGroupPage,
+  DuplicateMode,
+  DuplicateQuery,
+  DuplicatesState,
   FileQuery,
   FileRecord,
   FolderContents,
@@ -45,6 +49,12 @@ export interface OpenPathResult {
   error: string | null;
 }
 
+export interface DuplicateStartInput {
+  drives?: string[];
+  folders?: string[];
+  mode: DuplicateMode;
+}
+
 export interface DiskOrganizerApi {
   selectOrganizeDirectory(): Promise<string | null>;
   previewOrganize(input: OrganizePreviewRequest): Promise<OrganizePreview>;
@@ -76,6 +86,11 @@ export interface DiskOrganizerApi {
   listFolderContents(query: FolderQuery): Promise<FolderContents>;
   getFile(id: number): Promise<FileRecord | null>;
   syncIndex(): Promise<IndexSyncResult>;
+  selectDuplicateDirectory(): Promise<string | null>;
+  getDuplicatesState(): Promise<DuplicatesState>;
+  startDuplicates(input: DuplicateStartInput): Promise<DuplicatesState>;
+  cancelDuplicates(): Promise<DuplicatesState>;
+  queryDuplicateGroups(query: DuplicateQuery): Promise<DuplicateGroupPage>;
   getScanState(): Promise<ScanProgress>;
   startScan(input: StartScanInput): Promise<ScanProgress>;
   pauseScan(): Promise<ScanProgress>;

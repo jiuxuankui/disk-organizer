@@ -180,6 +180,7 @@ export interface AppSettings {
   scanDrives: string[];
   excludedPaths: string[];
   skipHiddenSystem: boolean;
+  minDuplicateSize: number;
   autoBackup: boolean;
   theme: import('./themes').ThemeId;
 }
@@ -189,6 +190,82 @@ export type ScanEvent =
   | { type: 'completed'; scan: ScanSummary }
   | { type: 'cancelled'; scanId: number }
   | { type: 'failed'; message: string };
+
+export type DuplicateMode = 'full' | 'name' | 'hybrid';
+
+export type DuplicateRunStatus =
+  | 'idle'
+  | 'running'
+  | 'completed'
+  | 'cancelled'
+  | 'failed'
+  | 'stale';
+
+export interface DuplicatesState {
+  runId: number | null;
+  scanId: number | null;
+  status: DuplicateRunStatus;
+  stage: 'quick' | 'full' | null;
+  mode: DuplicateMode;
+  drives: string[];
+  folders: string[];
+  minSize: number;
+  quickChecked: number;
+  quickTotal: number;
+  fullChecked: number;
+  fullTotal: number;
+  etaMs: number | null;
+  groups: number;
+  files: number;
+  reclaimableBytes: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  error: string | null;
+  needsRefresh: boolean;
+}
+
+export interface DuplicateQuery {
+  minSize: number;
+  drive?: string | null;
+  type?: FileTypeKey | 'all' | null;
+  sortBy: 'reclaimable' | 'size' | 'count';
+  sortOrder: 'asc' | 'desc';
+  page: number;
+  pageSize: number;
+}
+
+export interface DuplicateMember {
+  fileId: number;
+  path: string;
+  name: string;
+  size: number;
+  mtimeMs: number;
+  drive: string;
+  ext: string;
+  type: FileTypeKey;
+  suggestedKeep: boolean;
+}
+
+export interface DuplicateGroup {
+  id: number;
+  size: number;
+  fileCount: number;
+  reclaimableBytes: number;
+  type: FileTypeKey;
+  mixedExt: boolean;
+  extensions: string[];
+  drives: string[];
+  members: DuplicateMember[];
+}
+
+export interface DuplicateGroupPage {
+  items: DuplicateGroup[];
+  total: number;
+  totalFiles: number;
+  reclaimableBytes: number;
+  page: number;
+  pageSize: number;
+}
 
 export interface AppInfo {
   version: string;
@@ -219,6 +296,7 @@ export interface DeletePreview {
   recycleAvailable: boolean;
   recycleMessage: string | null;
   canDelete: boolean;
+  groupsAllDeleted: number;
 }
 
 export interface DeleteFailure {

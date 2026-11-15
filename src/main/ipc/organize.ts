@@ -13,11 +13,12 @@ import type { IpcContext } from './context';
 function ensureIdle(ctx: IpcContext): void {
   if (
     ctx.scan.isBusy() ||
+    ctx.duplicates.isRunning() ||
     ctx.deleteService.isRunning() ||
     ctx.video.isRunning() ||
     ctx.archive.isRunning()
   ) {
-    throw new Error('请等待扫描、删除或压缩任务完成后再整理或移动');
+    throw new Error('请等待扫描、删除、重复查找或压缩任务完成后再整理或移动');
   }
 }
 export function registerOrganizeIpc(ctx: IpcContext): void {

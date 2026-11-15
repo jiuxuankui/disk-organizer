@@ -8,8 +8,10 @@ import {
   Descriptions,
   Empty,
   Input,
+  InputNumber,
   List,
   Modal,
+  Radio,
   Space,
   Switch,
   Tag,
@@ -37,7 +39,17 @@ interface SettingsDraft {
   excludedPaths: string[];
   skipHiddenSystem: boolean;
   autoBackup: boolean;
+  minDuplicateSize: number;
 }
+
+const MB = 1024 * 1024;
+
+const DUPLICATE_SIZE_PRESETS = [
+  { value: 1, label: '1 MB' },
+  { value: 10, label: '10 MB' },
+  { value: 100, label: '100 MB' },
+  { value: 0, label: '不限' },
+] as const;
 
 function toDraft(settings: AppSettings): SettingsDraft {
   return {
@@ -45,6 +57,7 @@ function toDraft(settings: AppSettings): SettingsDraft {
     excludedPaths: [...settings.excludedPaths],
     skipHiddenSystem: settings.skipHiddenSystem,
     autoBackup: settings.autoBackup,
+    minDuplicateSize: settings.minDuplicateSize,
   };
 }
 
@@ -169,7 +182,8 @@ export default function SettingsPage(): React.JSX.Element {
       !sameList([...draft.scanDrives].sort(), [...settings.scanDrives].sort()) ||
       !sameList(draft.excludedPaths, settings.excludedPaths) ||
       draft.skipHiddenSystem !== settings.skipHiddenSystem ||
-      draft.autoBackup !== settings.autoBackup
+      draft.autoBackup !== settings.autoBackup ||
+      draft.minDuplicateSize !== settings.minDuplicateSize
     );
   }, [settings, draft]);
 
@@ -203,6 +217,9 @@ export default function SettingsPage(): React.JSX.Element {
       patch.skipHiddenSystem = draft.skipHiddenSystem;
     }
     if (draft.autoBackup !== settings?.autoBackup) patch.autoBackup = draft.autoBackup;
+    if (draft.minDuplicateSize !== settings?.minDuplicateSize) {
+      patch.minDuplicateSize = draft.minDuplicateSize;
+    }
 
     const ok = await updateSettings(patch);
     setSaving(false);
@@ -412,6 +429,61 @@ export default function SettingsPage(): React.JSX.Element {
                   onChange={(checked) => patchDraft({ autoBackup: checked })}
                 />
               </div>
+            </Space>
+          ) : (
+            <Typography.Text type="secondary">加载中…</Typography.Text>
+          )}
+        </Card>
+
+        <Card title="重复文件规则">
+          {draft ? (
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <div>
+                <Typography.Text strong>最小文件体积</Typography.Text>
+                <Typography.Paragraph type="secondary" className="panel-note">
+                  完整比对和混合对比只检查不小于该体积的文件；仅文件名模式不受此限制。
+                </Typography.Paragraph>
+                <Space wrap>
+                  <InputNumber
+                    min={0}
+                    max={1024 * 1024}
+                    precision={0}
+                    step={1}
+                    addonAfter="MB"
+                    value={Math.floor(draft.minDuplicateSize / MB)}
+                    onChange={(value) =>
+                      patchDraft({
+                        minDuplicateSize: Math.max(0, Math.round(Number(value ?? 0) * MB)),
+                      })
+                    }
+                  />
+                  <Radio.Group
+                    value={
+                      DUPLICATE_SIZE_PRESETS.find(
+                        (preset) => preset.value * MB === draft.minDuplicateSize,
+                      )?.value ?? null
+                    }
+                    optionType="button"
+                    onChange={(event) =>
+                      patchDraft({ minDuplicateSize: Number(event.target.value) * MB })
+                    }
+                    options={DUPLICATE_SIZE_PRESETS.map((preset) => ({
+                      value: preset.value,
+                      label: preset.label,
+                    }))}
+                  />
+                </Space>
+              </div>
+              {settings && draft.minDuplicateSize !== settings.minDuplicateSize ? (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="保存后需重新查找重复文件才会生效"
+                  description={`当前设置：${formatBytes(settings.minDuplicateSize)}，保存后：${formatBytes(
+                    draft.minDuplicateSize,
+                  )}。已有的查找结果不受影响。`}
+                />
+              ) : null}
             </Space>
           ) : (
             <Typography.Text type="secondary">加载中…</Typography.Text>

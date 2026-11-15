@@ -16,7 +16,7 @@ import type {
 } from '@shared/types';
 import { popPage, pushPage } from '../lib/back';
 
-export type PageKey = 'overview' | 'files' | 'video' | 'organize' | 'settings';
+export type PageKey = 'overview' | 'files' | 'duplicates' | 'video' | 'organize' | 'settings';
 
 export interface FilesPrefill {
   drive: string | null;
@@ -34,7 +34,7 @@ const PAGE_KEY = 'disk-organizer:last-page';
 const DRIVE_KEY = 'disk-organizer:last-drive';
 const INDEX_SYNC_INTERVAL_MS = 10 * 60_000;
 let lastIndexSyncAt = 0;
-const VALID_PAGES: PageKey[] = ['overview', 'files', 'video', 'organize', 'settings'];
+const VALID_PAGES: PageKey[] = ['overview', 'files', 'duplicates', 'video', 'organize', 'settings'];
 
 function readPage(): PageKey {
   try {

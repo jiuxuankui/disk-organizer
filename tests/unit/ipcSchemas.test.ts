@@ -3,6 +3,7 @@ import {
   copyTextSchema,
   deleteFilesSchema,
   driveQuerySchema,
+  duplicatesStartSchema,
   fileIdSchema,
   fileQuerySchema,
   parseIpc,
@@ -127,6 +128,25 @@ describe('IPC validation schemas', () => {
     expect(() => deleteFilesSchema.parse({ folderPaths: ['C:\\a\\b\\'] })).not.toThrow();
   });
 
+  it('validates duplicate scopes and modes', () => {
+    expect(duplicatesStartSchema.parse({ mode: 'hybrid' })).toEqual({
+      mode: 'hybrid',
+    });
+    expect(duplicatesStartSchema.parse({ drives: ['c'] }).mode).toBe('full');
+    expect(duplicatesStartSchema.parse({ drives: ['c'] }).drives).toEqual(['C:']);
+    expect(
+      duplicatesStartSchema.parse({ folders: ['D:\\Downloads'], mode: 'name' }).folders,
+    ).toEqual(['D:\\Downloads']);
+    expect(() => duplicatesStartSchema.parse({ mode: 'bogus' })).toThrow();
+    expect(() => duplicatesStartSchema.parse({ folders: ['relative'] })).toThrow();
+    expect(() =>
+      duplicatesStartSchema.parse({
+        folders: Array.from({ length: 21 }, (_, index) => `D:\\dup-${index}`),
+      }),
+    ).toThrow();
+    expect(() => duplicatesStartSchema.parse({ mode: 'full', extra: true })).toThrow();
+  });
+
   it('validates settings updates', () => {
     expect(
       settingsUpdateSchema.parse({
@@ -145,6 +165,12 @@ describe('IPC validation schemas', () => {
       'D:\\Temp',
     ]);
     expect(settingsUpdateSchema.parse({ theme: 'macos-dark' }).theme).toBe('macos-dark');
+    expect(settingsUpdateSchema.parse({ minDuplicateSize: 10 * 1024 * 1024 })).toEqual({
+      minDuplicateSize: 10 * 1024 * 1024,
+    });
+    expect(settingsUpdateSchema.parse({ minDuplicateSize: 0 }).minDuplicateSize).toBe(0);
+    expect(() => settingsUpdateSchema.parse({ minDuplicateSize: -1 })).toThrow();
+    expect(() => settingsUpdateSchema.parse({ minDuplicateSize: 1.5 })).toThrow();
     expect(() => parseIpc(settingsUpdateSchema, {}, '保存设置')).toThrow(/没有需要保存的设置/);
     expect(() => settingsUpdateSchema.parse({ unknown: 1 })).toThrow();
     expect(() => settingsUpdateSchema.parse({ excludedPaths: [''] })).toThrow();

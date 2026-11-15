@@ -1,0 +1,743 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import type { DatabaseSync } from 'node:sqlite';
+import type { DuplicateQuery } from '@shared/types';
+import { classifyFileName, getExtension } from '@shared/fileTypes';
+import { openDatabase } from '../../src/main/db/connection';
+import {
+  createScan,
+  finalizeScan,
+  markOtherDuplicateRunsStale,
+  setActiveScanId,
+} from '../../src/main/db/scansRepo';
+import { normalizePathKey } from '../../src/main/services/filesystem';
+import { DuplicatesService } from '../../src/main/services/duplicatesService';
+import { listDuplicateCandidates } from '../../src/main/db/duplicatesRepo';
+import {
+  createInlineHashRunner,
+  HashCancelledError,
+  type HashRunner,
+} from '../../src/main/services/hashRunner';
+import { createTempDbPath } from './helpers';
+
+const cleanups: Array<() => void> = [];
+
+afterEach(() => {
+  while (cleanups.length > 0) cleanups.pop()!();
+});
+
+interface FixtureFile {
+  path: string;
+  size: number;
+  mtimeMs: number;
+  volumeId: string;
+  fileId: string;
+  drive: string;
+}
+
+function tempRoot(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'disk-organizer-dup-'));
+  cleanups.push(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 }));
+  return dir;
+}
+
+function createFile(
+  root: string,
+  relative: string,
+  content: Buffer,
+  mtimeMs: number,
+  drive = 'C:',
+): FixtureFile {
+  const fullPath = path.join(root, relative);
+  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+  fs.writeFileSync(fullPath, content);
+  const seconds = mtimeMs / 1000;
+  fs.utimesSync(fullPath, seconds, seconds);
+  const stats = fs.statSync(fullPath, { bigint: true });
+  return {
+    path: fullPath,
+    size: Number(stats.size),
+    mtimeMs: Number(stats.mtimeMs),
+    volumeId: stats.dev.toString(16),
+    fileId: stats.ino.toString(16),
+    drive,
+  };
+}
+
+function insertFile(db: DatabaseSync, scanId: number, file: FixtureFile): number {
+  const name = path.win32.basename(file.path);
+  const dirPath = path.win32.dirname(file.path);
+  const rootDir = path.win32.basename(dirPath);
+  const result = db
+    .prepare(
+      `INSERT INTO files
+        (scan_id, drive, path, path_key, name, name_key, ext, type, size, mtime_ms, ctime_ms, root_dir, dir_path, dir_key, volume_id, file_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      scanId,
+      file.drive,
+      file.path,
+      normalizePathKey(file.path),
+      name,
+      name.toLowerCase(),
+      getExtension(name),
+      classifyFileName(name),
+      file.size,
+      file.mtimeMs,
+      file.mtimeMs,
+      rootDir,
+      dirPath,
+      normalizePathKey(dirPath),
+      file.volumeId,
+      file.fileId,
+    );
+  return Number(result.lastInsertRowid);
+}
+
+interface Seeded {
+  db: DatabaseSync;
+  service: DuplicatesService;
+  scanId: number;
+  files: Record<string, FixtureFile>;
+}
+
+function seed(): Seeded {
+  const temp = createTempDbPath();
+  cleanups.push(temp.cleanup);
+  const root = tempRoot();
+  const db = openDatabase(temp.dbPath);
+  cleanups.push(() => {
+    try {
+      db.close();
+    } catch {
+      // Database may already be closed by a test.
+    }
+  });
+
+  const shared = Buffer.alloc(70_000, 0x41);
+  const different = Buffer.alloc(70_000, 0x42);
+  const mixed = Buffer.alloc(80 * 1024, 0x4d);
+  const hardLinked = Buffer.alloc(72 * 1024, 0x48);
+  const cross = Buffer.alloc(70 * 1024, 0x58);
+
+  const files: Record<string, FixtureFile> = {};
+  files.sameA = createFile(root, 'a\\same-a.txt', shared, Date.UTC(2020, 0, 1));
+  files.sameB = createFile(root, 'bb\\same-b.txt', shared, Date.UTC(2024, 0, 1));
+  files.sameC = createFile(root, 'cc\\same-c.txt', shared, Date.UTC(2024, 0, 1));
+  files.different = createFile(root, 'diff.txt', different, Date.UTC(2023, 0, 1));
+  files.mixedJpg = createFile(root, 'mixed\\mixed-a.jpg', mixed, Date.UTC(2022, 0, 1));
+  files.mixedPng = createFile(root, 'mixed\\mixed-b.png', mixed, Date.UTC(2022, 0, 2));
+  files.crossC = createFile(root, 'cross\\cross-c.bin', cross, Date.UTC(2021, 0, 1), 'C:');
+  files.crossX = createFile(root, 'cross\\cross-x.bin', cross, Date.UTC(2021, 0, 2), 'X:');
+  files.hardA = createFile(root, 'hard\\hard-a.bin', hardLinked, Date.UTC(2022, 5, 1));
+  fs.linkSync(files.hardA.path, path.join(root, 'hard\\hard-b.bin'));
+  const hardBStats = fs.statSync(path.join(root, 'hard\\hard-b.bin'), { bigint: true });
+  files.hardB = {
+    path: path.join(root, 'hard\\hard-b.bin'),
+    size: Number(hardBStats.size),
+    mtimeMs: Number(hardBStats.mtimeMs),
+    volumeId: hardBStats.dev.toString(16),
+    fileId: hardBStats.ino.toString(16),
+    drive: 'C:',
+  };
+  files.zeroA = createFile(root, 'zero\\zero-a.bin', Buffer.alloc(0), Date.UTC(2020, 0, 1));
+  files.zeroB = createFile(root, 'zero\\zero-b.bin', Buffer.alloc(0), Date.UTC(2020, 0, 1));
+
+  const scanId = createScan(db, ['C:', 'X:'], 1000);
+  let totalFiles = 0;
+  let totalBytes = 0;
+  for (const file of Object.values(files)) {
+    insertFile(db, scanId, file);
+    totalFiles += 1;
+    totalBytes += file.size;
+  }
+  finalizeScan(db, scanId, {
+    totalFiles,
+    identifiedBytes: totalBytes,
+    skipped: [],
+    finishedAt: 2000,
+  });
+  setActiveScanId(db, scanId);
+
+  const service = new DuplicatesService({
+    db,
+    getDefaultMinSize: () => 0,
+    runnerFactory: () => createInlineHashRunner(),
+  });
+
+  return { db, service, scanId, files };
+}
+
+async function runToCompletion(
+  service: DuplicatesService,
+  input: { drives?: string[]; folders?: string[]; mode?: 'full' | 'name' | 'hybrid' } = {},
+): Promise<void> {
+  service.start({ mode: 'full', ...input });
+  await service.whenIdle();
+}
+
+function baseQuery(patch: Partial<DuplicateQuery> = {}): DuplicateQuery {
+  return {
+    minSize: 0,
+    drive: null,
+    type: null,
+    sortBy: 'reclaimable',
+    sortOrder: 'desc',
+    page: 1,
+    pageSize: 100,
+    ...patch,
+  };
+}
+
+describe('duplicate detection', () => {
+  it('groups identical content, ignores same-size differences and zero-byte files', async () => {
+    const { db, service, files } = seed();
+    try {
+      await runToCompletion(service);
+      const state = service.getState();
+      expect(state.status).toBe('completed');
+      expect(state.groups).toBe(3);
+      expect(state.files).toBe(7);
+      expect(state.reclaimableBytes).toBe(140_000 + 81_920 + 71_680);
+
+      const page = service.query(baseQuery());
+      expect(page.total).toBe(3);
+      const sameGroup = page.items.find((group) => group.size === 70_000);
+      expect(sameGroup).toBeDefined();
+      expect(sameGroup!.fileCount).toBe(3);
+      expect(sameGroup!.reclaimableBytes).toBe(140_000);
+      expect(sameGroup!.members.map((member) => member.name).sort()).toEqual([
+        'same-a.txt',
+        'same-b.txt',
+        'same-c.txt',
+      ]);
+      expect(sameGroup!.members.some((member) => member.name === 'diff.txt')).toBe(false);
+      const keep = sameGroup!.members.find((member) => member.suggestedKeep);
+      expect(keep?.name).toBe('same-a.txt');
+      expect(keep?.path).toBe(files.sameA.path);
+
+      const mixedGroup = page.items.find((group) => group.extensions.length === 2);
+      expect(mixedGroup).toBeDefined();
+      expect(mixedGroup!.mixedExt).toBe(true);
+      expect(mixedGroup!.extensions.sort()).toEqual(['jpg', 'png']);
+
+      const crossGroup = page.items.find((group) => group.drives.length === 2);
+      expect(crossGroup).toBeDefined();
+      expect(crossGroup!.drives).toEqual(['C:', 'X:']);
+
+      const zeroFileIds = new Set(
+        page.items.flatMap((group) => group.members.map((member) => member.path)),
+      );
+      expect(zeroFileIds.has(files.zeroA.path)).toBe(false);
+      expect(zeroFileIds.has(files.zeroB.path)).toBe(false);
+
+      const hardlinkPaths = new Set(
+        page.items.flatMap((group) => group.members.map((member) => member.path)),
+      );
+      expect(hardlinkPaths.has(files.hardA.path)).toBe(false);
+      expect(hardlinkPaths.has(files.hardB.path)).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('filters groups by drive, type and minimum size, and restores when cleared', async () => {
+    const { db, service } = seed();
+    try {
+      await runToCompletion(service);
+      const all = service.query(baseQuery());
+      expect(all.total).toBe(3);
+
+      const xDrive = service.query(baseQuery({ drive: 'X:' }));
+      expect(xDrive.total).toBe(1);
+      expect(xDrive.items[0].drives).toContain('X:');
+
+      const images = service.query(baseQuery({ type: 'image' }));
+      expect(images.total).toBe(1);
+      expect(images.items[0].extensions.sort()).toEqual(['jpg', 'png']);
+
+      const large = service.query(baseQuery({ minSize: 75_000 }));
+      expect(large.total).toBe(1);
+      expect(large.items[0].size).toBe(81_920);
+
+      const restored = service.query(baseQuery({ minSize: 0 }));
+      expect(restored.total).toBe(3);
+      expect(restored.totalFiles).toBe(7);
+      expect(restored.reclaimableBytes).toBe(293_600);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('lists duplicate candidates only from the selected drives', () => {
+    const { db, scanId, files } = seed();
+    try {
+      const allPaths = new Set(
+        listDuplicateCandidates(db, scanId, { minSize: 0, mode: 'full' }).map((row) => row.path),
+      );
+      expect(allPaths.has(files.crossX.path)).toBe(true);
+
+      const cOnly = listDuplicateCandidates(db, scanId, {
+        minSize: 0,
+        mode: 'full',
+        drives: ['C:'],
+      });
+      expect(cOnly.length).toBeGreaterThan(0);
+      expect(cOnly.every((row) => row.drive === 'C:')).toBe(true);
+      const cPaths = new Set(cOnly.map((row) => row.path));
+      expect(cPaths.has(files.sameA.path)).toBe(true);
+      expect(cPaths.has(files.crossX.path)).toBe(false);
+
+      expect(
+        listDuplicateCandidates(db, scanId, { minSize: 0, mode: 'full', drives: ['X:'] }),
+      ).toHaveLength(0);
+      expect(
+        listDuplicateCandidates(db, scanId, { minSize: 0, mode: 'full', drives: [] }),
+      ).toHaveLength(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('limits the search to the selected drives and persists the scope', async () => {
+    const { db, service, scanId } = seed();
+    try {
+      const pairSize = 90 * 1024;
+      const pair = Buffer.alloc(pairSize, 0x51);
+      insertFile(
+        db,
+        scanId,
+        createFile(tempRoot(), 'xpair\\x-pair-a.pdf', pair, Date.UTC(2020, 2, 1), 'X:'),
+      );
+      insertFile(
+        db,
+        scanId,
+        createFile(tempRoot(), 'xpair\\x-pair-b.pdf', pair, Date.UTC(2020, 2, 2), 'X:'),
+      );
+
+      service.start({ drives: ['X:'], mode: 'full' });
+      await service.whenIdle();
+      let state = service.getState();
+      expect(state.status).toBe('completed');
+      expect(state.drives).toEqual(['X:']);
+      let page = service.query(baseQuery());
+      expect(page.total).toBe(1);
+      expect(page.items[0].size).toBe(pairSize);
+      expect(page.items[0].drives).toEqual(['X:']);
+
+      const restarted = new DuplicatesService({
+        db,
+        getDefaultMinSize: () => 0,
+        runnerFactory: () => createInlineHashRunner(),
+      });
+      expect(restarted.getState().drives).toEqual(['X:']);
+
+      service.start({ drives: ['c:'], mode: 'full' });
+      await service.whenIdle();
+      state = service.getState();
+      expect(state.drives).toEqual(['C:']);
+      page = service.query(baseQuery());
+      expect(page.total).toBe(2);
+      expect(page.items.every((group) => group.drives.every((drive) => drive === 'C:'))).toBe(
+        true,
+      );
+      expect(page.items.some((group) => group.size === pairSize)).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('skips full reads for large files whose difference is caught by quick sampling', async () => {
+    const { db, scanId } = seed();
+    try {
+      const size = 300 * 1024;
+      const content = Buffer.alloc(size, 0x61);
+      const tailDifferent = Buffer.from(content);
+      tailDifferent[size - 512] = 0x62;
+      const root = tempRoot();
+      insertFile(
+        db,
+        scanId,
+        createFile(root, 'large\\large-a.bin', content, Date.UTC(2020, 3, 1)),
+      );
+      insertFile(
+        db,
+        scanId,
+        createFile(root, 'large\\large-b.bin', content, Date.UTC(2020, 3, 2)),
+      );
+      insertFile(
+        db,
+        scanId,
+        createFile(root, 'large\\large-c.bin', tailDifferent, Date.UTC(2020, 3, 3)),
+      );
+
+      const fullPaths: string[] = [];
+      const inline = createInlineHashRunner();
+      const recording: HashRunner = {
+        async run(items, options) {
+          for (const item of items) {
+            if (item.mode === 'full') {
+              expect(item.quickHash).toBeTruthy();
+              fullPaths.push(item.path);
+            }
+          }
+          return inline.run(items, options);
+        },
+        async dispose() {
+          // no-op
+        },
+      };
+      const fast = new DuplicatesService({
+        db,
+        getDefaultMinSize: () => 0,
+        runnerFactory: () => recording,
+      });
+      await runToCompletion(fast);
+      expect(fast.getState().status).toBe('completed');
+
+      const large = fast.query(baseQuery()).items.find((group) => group.size === size);
+      expect(large).toBeDefined();
+      expect(large!.members.map((member) => member.name).sort()).toEqual([
+        'large-a.bin',
+        'large-b.bin',
+      ]);
+      expect(fullPaths.some((filePath) => filePath.endsWith('large-a.bin'))).toBe(true);
+      expect(fullPaths.some((filePath) => filePath.endsWith('large-b.bin'))).toBe(true);
+      expect(fullPaths.some((filePath) => filePath.endsWith('large-c.bin'))).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects drives outside the scan and empty selections', () => {
+    const { db, service } = seed();
+    try {
+      expect(() => service.start({ mode: 'full', drives: [] })).toThrow('请至少选择一块硬盘');
+      expect(() => service.start({ mode: 'full', drives: ['Z:'] })).toThrow('本次扫描范围');
+      expect(service.getState().status).toBe('idle');
+      const runs = db.prepare('SELECT COUNT(*) AS count FROM duplicate_runs').get() as {
+        count: number;
+      };
+      expect(runs.count).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('recomputes groups and totals after duplicate members are removed', async () => {
+    const { db, service } = seed();
+    try {
+      await runToCompletion(service);
+      const before = service.query(baseQuery());
+      const sameGroup = before.items.find((group) => group.size === 70_000)!;
+      const removeFirst = sameGroup.members.find((member) => member.name === 'same-b.txt')!;
+      const removeSecond = sameGroup.members.find((member) => member.name === 'same-c.txt')!;
+
+      expect(service.removeFiles([removeFirst.fileId])).toBe(1);
+      const afterFirst = service.query(baseQuery());
+      const reduced = afterFirst.items.find((group) => group.size === 70_000)!;
+      expect(reduced.fileCount).toBe(2);
+      expect(reduced.reclaimableBytes).toBe(70_000);
+      expect(reduced.members.map((member) => member.name).sort()).toEqual([
+        'same-a.txt',
+        'same-c.txt',
+      ]);
+      expect(reduced.members.find((member) => member.suggestedKeep)?.name).toBe('same-a.txt');
+      let state = service.getState();
+      expect(state.groups).toBe(3);
+      expect(state.files).toBe(6);
+      expect(state.reclaimableBytes).toBe(223_600);
+
+      expect(service.removeFiles([removeSecond.fileId])).toBe(1);
+      const afterSecond = service.query(baseQuery());
+      expect(afterSecond.items.some((group) => group.size === 70_000)).toBe(false);
+      expect(afterSecond.total).toBe(2);
+      state = service.getState();
+      expect(state.groups).toBe(2);
+      expect(state.files).toBe(4);
+      expect(state.reclaimableBytes).toBe(153_600);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('reuses cached hashes on a repeat run', async () => {
+    const { db, scanId, service } = seed();
+    try {
+      await runToCompletion(service);
+      const emitted: Array<{
+        status: string;
+        quickTotal: number;
+        fullTotal: number;
+        groups: number;
+      }> = [];
+      let calls = 0;
+      const inline = createInlineHashRunner();
+      const counting: HashRunner = {
+        async run(items, options) {
+          calls += items.length;
+          return inline.run(items, options);
+        },
+        async dispose() {
+          // no-op
+        },
+      };
+      const second = new DuplicatesService({
+        db,
+        getDefaultMinSize: () => 0,
+        runnerFactory: () => counting,
+        emit: (state) =>
+          emitted.push({
+            status: state.status,
+            quickTotal: state.quickTotal,
+            fullTotal: state.fullTotal,
+            groups: state.groups,
+          }),
+      });
+      await runToCompletion(second);
+      expect(second.getState().status).toBe('completed');
+      expect(calls).toBe(0);
+      expect(emitted.some((state) => state.status === 'running' && state.quickTotal > 0)).toBe(
+        true,
+      );
+      expect(emitted.some((state) => state.status === 'completed' && state.groups > 0)).toBe(
+        true,
+      );
+      expect(second.query(baseQuery()).total).toBe(3);
+      expect(scanId).toBeGreaterThan(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('cancels without leaving partial groups', async () => {
+    const { db } = seed();
+    try {
+      const blocking: HashRunner = {
+        run(_items, options) {
+          return new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => reject(new HashCancelledError()));
+          });
+        },
+        async dispose() {
+          // no-op
+        },
+      };
+      const cancellable = new DuplicatesService({
+        db,
+        getDefaultMinSize: () => 0,
+        runnerFactory: () => blocking,
+      });
+      cancellable.start({ mode: 'full' });
+      expect(cancellable.getState().status).toBe('running');
+      cancellable.cancel();
+      await cancellable.whenIdle();
+      expect(cancellable.getState().status).toBe('cancelled');
+
+      const groups = db.prepare('SELECT COUNT(*) AS count FROM duplicate_groups').get() as {
+        count: number;
+      };
+      expect(groups.count).toBe(0);
+      expect(cancellable.query(baseQuery()).total).toBe(0);
+      const run = db
+        .prepare('SELECT status, total_groups FROM duplicate_runs ORDER BY id DESC LIMIT 1')
+        .get() as { status: string; total_groups: number };
+      expect(run).toEqual({ status: 'cancelled', total_groups: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('flags results as stale after a newer scan invalidates the index', async () => {
+    const { db, service, scanId } = seed();
+    try {
+      await runToCompletion(service);
+      expect(service.query(baseQuery()).total).toBe(3);
+      markOtherDuplicateRunsStale(db, scanId + 100);
+      const state = service.getState();
+      expect(state.status).toBe('stale');
+      expect(state.needsRefresh).toBe(true);
+      expect(state.groups).toBe(0);
+      expect(service.query(baseQuery()).total).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('keeps the earliest modification time as the suggested copy', async () => {
+    const { db, service } = seed();
+    try {
+      await runToCompletion(service);
+      const page = service.query(baseQuery());
+      for (const group of page.items) {
+        const keeps = group.members.filter((member) => member.suggestedKeep);
+        expect(keeps).toHaveLength(1);
+        const earliest = Math.min(...group.members.map((member) => member.mtimeMs));
+        expect(keeps[0].mtimeMs).toBe(earliest);
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  it('limits the search to the selected folders and merges nested folders', async () => {
+    const { db, service, scanId } = seed();
+    try {
+      const root = tempRoot();
+      const shared = Buffer.alloc(20_000, 0x71);
+      const innerA = createFile(root, 'scope\\inner\\a.bin', shared, Date.UTC(2021, 0, 1));
+      const innerB = createFile(root, 'scope\\inner\\b.bin', shared, Date.UTC(2021, 0, 2));
+      const outerC = createFile(root, 'scope\\other\\c.bin', shared, Date.UTC(2021, 0, 3));
+      const outerD = createFile(root, 'scope\\other\\d.bin', shared, Date.UTC(2021, 0, 4));
+      for (const file of [innerA, innerB, outerC, outerD]) insertFile(db, scanId, file);
+
+      const inner = path.join(root, 'scope', 'inner');
+      service.start({
+        folders: [inner, path.join(inner, '.'), inner],
+        mode: 'full',
+      });
+      await service.whenIdle();
+
+      const state = service.getState();
+      expect(state.status).toBe('completed');
+      expect(state.folders).toEqual([fs.realpathSync(inner)]);
+      expect(state.drives).toEqual(['C:']);
+
+      const page = service.query(baseQuery());
+      const group = page.items.find((item) => item.size === 20_000);
+      expect(group).toBeDefined();
+      expect(group!.members.map((member) => member.name).sort()).toEqual(['a.bin', 'b.bin']);
+      expect(group!.members.some((member) => member.path === outerC.path)).toBe(false);
+      expect(group!.members.some((member) => member.path === outerD.path)).toBe(false);
+      expect(page.items.some((item) => item.members.some((m) => m.path === outerC.path))).toBe(
+        false,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it('treats folder names literally even with % or _ characters', async () => {
+    const { db, service, scanId } = seed();
+    try {
+      const root = tempRoot();
+      const shared = Buffer.alloc(30_000, 0x72);
+      const insideA = createFile(root, 'lit\\100%_done\\a.bin', shared, Date.UTC(2021, 1, 1));
+      const insideB = createFile(root, 'lit\\100%_done\\b.bin', shared, Date.UTC(2021, 1, 2));
+      const lookalike = createFile(root, 'lit\\100Xdone\\c.bin', shared, Date.UTC(2021, 1, 3));
+      for (const file of [insideA, insideB, lookalike]) insertFile(db, scanId, file);
+
+      service.start({
+        folders: [path.join(root, 'lit', '100%_done')],
+        mode: 'full',
+      });
+      await service.whenIdle();
+
+      const group = service
+        .query(baseQuery())
+        .items.find((item) => item.size === 30_000);
+      expect(group).toBeDefined();
+      expect(group!.members.map((member) => member.name).sort()).toEqual(['a.bin', 'b.bin']);
+      expect(group!.members.some((member) => member.path === lookalike.path)).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects more folders than the supported limit', () => {
+    const { db, service } = seed();
+    try {
+      const folders = Array.from({ length: 21 }, (_, index) => `C:\\dup-${index}`);
+      expect(() => service.start({ folders, mode: 'full' })).toThrow('最多添加');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('groups purely by file name in name mode, ignoring content and size', async () => {
+    const { db, scanId } = seed();
+    try {
+      const root = tempRoot();
+      const ten = Buffer.alloc(10, 0x31);
+      const twelve = Buffer.alloc(12, 0x32);
+      const smallA = createFile(root, 'nm\\a\\card.txt', ten, Date.UTC(2021, 2, 1));
+      const smallB = createFile(root, 'nm\\b\\CARD.TXT', ten, Date.UTC(2021, 2, 2));
+      const bigC = createFile(root, 'nm\\c\\card.txt', twelve, Date.UTC(2021, 2, 3));
+      const otherA = createFile(root, 'nm\\d\\other.bin', ten, Date.UTC(2021, 2, 4));
+      const otherB = createFile(root, 'nm\\e\\other2.bin', ten, Date.UTC(2021, 2, 5));
+      for (const file of [smallA, smallB, bigC, otherA, otherB]) insertFile(db, scanId, file);
+
+      const nameMode = new DuplicatesService({
+        db,
+        getDefaultMinSize: () => 10 * 1024 * 1024,
+        runnerFactory: () => createInlineHashRunner(),
+      });
+      await runToCompletion(nameMode, { mode: 'name' });
+
+      const state = nameMode.getState();
+      expect(state.status).toBe('completed');
+      expect(state.mode).toBe('name');
+      expect(state.minSize).toBe(0);
+
+      const page = nameMode.query(baseQuery());
+      const card = page.items.find((item) =>
+        item.members.some((member) => member.name.toLowerCase() === 'card.txt'),
+      );
+      expect(card).toBeDefined();
+      expect(card!.fileCount).toBe(3);
+      expect(
+        card!.members
+          .map((member) => member.path)
+          .sort(),
+      ).toEqual([smallA.path, smallB.path, bigC.path].sort());
+      const keep = card!.members.find((member) => member.suggestedKeep);
+      expect(keep?.path).toBe(bigC.path);
+      expect(card!.reclaimableBytes).toBe(20);
+
+      expect(
+        page.items.some((item) => item.members.some((member) => member.name === 'other.bin')),
+      ).toBe(false);
+      expect(
+        page.items.some((item) => item.members.some((member) => member.name === 'same-b.txt')),
+      ).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('groups only same-name identical-content files in hybrid mode', async () => {
+    const { db, service, scanId } = seed();
+    try {
+      const root = tempRoot();
+      const shared = Buffer.alloc(10, 0x41);
+      const different = Buffer.alloc(10, 0x42);
+      const noteA = createFile(root, 'hy\\a\\note.txt', shared, Date.UTC(2021, 5, 1));
+      const noteB = createFile(root, 'hy\\b\\NOTE.TXT', shared, Date.UTC(2021, 5, 2));
+      const noteC = createFile(root, 'hy\\c\\note.txt', different, Date.UTC(2021, 5, 3));
+      const otherD = createFile(root, 'hy\\d\\other.txt', shared, Date.UTC(2021, 5, 4));
+      for (const file of [noteA, noteB, noteC, otherD]) insertFile(db, scanId, file);
+
+      await runToCompletion(service, { mode: 'hybrid' });
+      const state = service.getState();
+      expect(state.status).toBe('completed');
+      expect(state.mode).toBe('hybrid');
+
+      const page = service.query(baseQuery());
+      const hybrid = page.items.find((item) =>
+        item.members.some((member) => member.name.toLowerCase() === 'note.txt'),
+      );
+      expect(hybrid).toBeDefined();
+      expect(hybrid!.fileCount).toBe(2);
+      expect(hybrid!.members.map((member) => member.path).sort()).toEqual(
+        [noteA.path, noteB.path].sort(),
+      );
+      expect(hybrid!.members.some((member) => member.path === noteC.path)).toBe(false);
+      expect(hybrid!.members.some((member) => member.path === otherD.path)).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+});
